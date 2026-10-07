@@ -47,6 +47,18 @@ def _make_beep(play: bool):
 @click.option("--save-dir", type=click.Path(), default=None)
 @click.option("--max-turns", type=int, default=None)
 @click.option(
+    "--debug",
+    is_flag=True,
+    help="Show a live line with mic level and wake-word score.",
+)
+@click.option(
+    "--gain",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="Digital microphone gain (use 2-6 if your mic is quiet).",
+)
+@click.option(
     "--find-mic",
     is_flag=True,
     help="Try every microphone while you speak and remember the one that hears you.",
@@ -71,6 +83,8 @@ def voice(
     max_turns: Optional[int],
     monitor: bool,
     find_mic: bool,
+    debug: bool,
+    gain: float,
 ) -> None:
     """Listen for "Hey Jarvis" (or two claps), then hold a spoken conversation."""
     console = Console()
@@ -89,7 +103,7 @@ def voice(
         device = _saved_device()
 
     if monitor:
-        _monitor(console, device, wake_threshold)
+        _monitor(console, device, wake_threshold, gain)
         return
 
     import httpx
@@ -199,8 +213,9 @@ def voice(
         clap=clap_det,
         follow_up_s=follow_up,
         max_turns=max_turns,
+        status=_status_line(console, wake_threshold) if debug else None,
     )
-    source = WavSource(input_wav) if input_wav else MicSource(device)
+    source = WavSource(input_wav) if input_wav else MicSource(device, gain)
     if not input_wav:
         console.print(f"Micrófono: {_device_name(device)}")
     try:
@@ -219,7 +234,9 @@ def _device_name(device: Optional[int]) -> str:
         return f"desconocido ({exc})"
 
 
-def _monitor(console: Console, device: Optional[int], wake_threshold: float) -> None:
+def _monitor(
+    console: Console, device: Optional[int], wake_threshold: float, gain: float = 1.0
+) -> None:
     """Live meter: mic level, wake-word score and clap detection."""
     import numpy as np
 
@@ -239,7 +256,7 @@ def _monitor(console: Console, device: Optional[int], wake_threshold: float) -> 
     best_wake = 0.0
     n = 0
     try:
-        for frame in MicSource(device):
+        for frame in MicSource(device, gain):
             assert len(frame) == FRAME
             rms = float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
             fired_wake = wake.process(frame)
@@ -330,3 +347,18 @@ def _find_mic(console: Console, seconds: float = 3.0, min_level: int = 300) -> N
     file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text(str(idx))
     console.print(f"\n[green]Usaré [{idx}] {name} (nivel {level}).[/green] Guardado.")
+
+
+def _status_line(console: Console, threshold: float):
+    """One in-place line: mic level bar + wake-word confidence."""
+
+    def show(level: float, wake: float) -> None:
+        bar = "#" * min(30, int(level / 250))
+        mark = " <-- casi" if wake >= 0.25 else ""
+        console.print(
+            f"nivel {int(level):5d} {bar:<30} wake {wake:.2f}/{threshold}{mark}   ",
+            end="\r",
+            highlight=False,
+        )
+
+    return show

@@ -88,8 +88,9 @@ class WavSource:
 class MicSource:
     """Live microphone via sounddevice (16 kHz mono int16, 80 ms blocks)."""
 
-    def __init__(self, device: Optional[int] = None) -> None:
+    def __init__(self, device: Optional[int] = None, gain: float = 1.0) -> None:
         self._device = device
+        self._gain = gain
         self._q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=400)
 
     def flush(self) -> None:
@@ -104,7 +105,12 @@ class MicSource:
 
         def callback(indata, frames, time_info, status):  # noqa: ARG001
             try:
-                self._q.put_nowait(indata[:, 0].copy())
+                data = indata[:, 0].copy()
+                if self._gain != 1.0:
+                    data = np.clip(
+                        data.astype(np.float32) * self._gain, -32768, 32767
+                    ).astype(np.int16)
+                self._q.put_nowait(data)
             except queue.Full:
                 pass
 
@@ -194,6 +200,7 @@ class VoiceDaemon:
     startup_s: float = 6.0
     max_turns: Optional[int] = None  # stop after N completed turns (testing)
     turns_done: int = field(default=0, init=False)
+    status: Optional[Callable[[float, float], None]] = None  # (level, wake score)
     _floor: float = field(default=100.0, init=False)
 
     def run(self, source: Iterable[np.ndarray]) -> None:
@@ -202,15 +209,24 @@ class VoiceDaemon:
             "Escuchando… di «Hey Jarvis»"
             + (" o aplaude dos veces." if self.clap else ".")
         )
+        peak, best, n = 0.0, 0.0, 0
         for frame in frames:
             rms = _rms(frame)
             if rms < 2000:
                 self._floor = 0.98 * self._floor + 0.02 * rms
+            if self.status is not None:
+                peak = max(peak, rms)
+                n += 1
+                if n % 6 == 0:  # about every 0.5 s
+                    self.status(peak, best)
+                    peak, best = 0.0, 0.0
             trigger = None
             if self.clap is not None and self.clap.process(frame):
                 trigger = "aplausos"
             elif self.wake is not None and self.wake.process(frame):
                 trigger = "Hey Jarvis"
+            if self.wake is not None:
+                best = max(best, getattr(self.wake, "last_score", 0.0))
             if trigger is None:
                 continue
             self.log(f"[{trigger}] te escucho")
