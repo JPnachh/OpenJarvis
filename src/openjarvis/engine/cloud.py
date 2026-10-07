@@ -82,6 +82,22 @@ _OPENAI_MODELS = [
     "gpt-5-mini",
     "o3-mini",
 ]
+# Claude 5.x models reject an explicit `temperature` ("deprecated for this model").
+_ANTHROPIC_NO_TEMP_PREFIXES = (
+    "claude-fable-5",
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-haiku-5",
+)
+
+
+def _anthropic_temperature_kwargs(model: str, temperature: float) -> Dict[str, Any]:
+    """Return ``{"temperature": t}`` unless *model* rejects the parameter."""
+    if model.startswith(_ANTHROPIC_NO_TEMP_PREFIXES):
+        return {}
+    return {"temperature": temperature}
+
+
 _ANTHROPIC_MODELS = [
     "claude-fable-5-1",
     "claude-opus-5-5",
@@ -760,7 +776,7 @@ class CloudEngine(InferenceEngine):
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
-            "temperature": temperature,
+            **_anthropic_temperature_kwargs(model, temperature),
             "max_tokens": max_tokens,
         }
         if system_text:
@@ -1439,7 +1455,7 @@ class CloudEngine(InferenceEngine):
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
-            "temperature": temperature,
+            **_anthropic_temperature_kwargs(model, temperature),
             "max_tokens": max_tokens,
         }
         if system_text:
@@ -1898,7 +1914,7 @@ class CloudEngine(InferenceEngine):
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
-            "temperature": temperature,
+            **_anthropic_temperature_kwargs(model, temperature),
             "max_tokens": max_tokens,
         }
         if system_text:

@@ -7,7 +7,9 @@ variable (or ``api_key=``). Voice IDs are ElevenLabs voice IDs; see
 
 from __future__ import annotations
 
+import io
 import os
+import wave
 from typing import List
 
 import httpx
@@ -23,8 +25,22 @@ DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"
 _FORMATS = {
     "mp3": "mp3_44100_128",
     "pcm": "pcm_24000",
+    "wav": "pcm_24000",  # raw PCM, wrapped into a WAV container below
     "ulaw": "ulaw_8000",
 }
+
+_PCM_SAMPLE_RATE = 24000
+
+
+def _pcm_to_wav(pcm: bytes, sample_rate: int = _PCM_SAMPLE_RATE) -> bytes:
+    """Wrap 16-bit mono PCM in a WAV container."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
 
 
 def _elevenlabs_synthesize(
@@ -86,11 +102,13 @@ class ElevenLabsTTSBackend(TTSBackend):
             output_format=output_format,
             speed=speed,
         )
+        if output_format == "wav":
+            audio = _pcm_to_wav(audio)
         return TTSResult(
             audio=audio,
             format=output_format,
             voice_id=voice,
-            sample_rate=24000 if output_format == "pcm" else 44100,
+            sample_rate=_PCM_SAMPLE_RATE if output_format in ("pcm", "wav") else 44100,
             metadata={"backend": "elevenlabs", "model": self._model},
         )
 

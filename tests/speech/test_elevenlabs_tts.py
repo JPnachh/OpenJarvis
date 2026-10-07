@@ -41,3 +41,19 @@ def test_synthesize_posts_to_voice_endpoint():
     req = route.calls[0].request
     assert req.headers["xi-api-key"] == "k"
     assert req.url.params["output_format"] == "mp3_44100_128"
+
+
+@respx.mock
+def test_wav_output_is_wrapped_pcm():
+    import io
+    import wave
+
+    route = respx.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{DEFAULT_VOICE_ID}"
+    ).mock(return_value=httpx.Response(200, content=b"\x00\x01" * 100))
+    result = ElevenLabsTTSBackend(api_key="k").synthesize("hi", output_format="wav")
+    assert route.calls[0].request.url.params["output_format"] == "pcm_24000"
+    with wave.open(io.BytesIO(result.audio)) as w:
+        assert w.getframerate() == 24000
+        assert w.getnframes() == 100
+    assert result.sample_rate == 24000
