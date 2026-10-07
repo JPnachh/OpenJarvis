@@ -1758,6 +1758,29 @@ class DigestConfig:
 
 
 @dataclass
+class HybridRoutingConfig:
+    """Local-vs-cloud routing for the virtual model `jarvis-auto`.
+
+    Keyword fields are comma-separated strings (matches TOML-array handling).
+    """
+
+    enabled: bool = True
+    local_model: str = ""  # empty -> intelligence.default_model
+    cloud_model: str = "claude-sonnet-5-5"  # automatic escalation target
+    heavy_model: str = "claude-opus-5-5"  # only on explicit /opus
+    cloud_threshold: float = 0.35  # complexity score at or above -> cloud
+    cloud_min_chars: int = 4000  # long prompts exceed the local context budget
+    cloud_keywords: str = (
+        "usa claude,con claude,piensa a fondo,analiza a fondo,analisis profundo,"
+        "use claude,think hard,deep analysis"
+    )
+    local_keywords: str = (
+        "privado,confidencial,secreto,contraseña,password,no uses la nube,"
+        "keep it local,private"
+    )
+
+
+@dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
 
@@ -1791,6 +1814,7 @@ class JarvisConfig:
     skills: SkillsConfig = field(default_factory=SkillsConfig)
     digest: DigestConfig = field(default_factory=DigestConfig)
     proactive: ProactiveConfig = field(default_factory=ProactiveConfig)
+    hybrid_routing: HybridRoutingConfig = field(default_factory=HybridRoutingConfig)
     mining: Optional["MiningConfig"] = None
 
     @property
@@ -2106,6 +2130,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "system_prompt",
             "compression",
             "skills",
+            "hybrid_routing",
         )
         for section_name in top_sections:
             if section_name in data:

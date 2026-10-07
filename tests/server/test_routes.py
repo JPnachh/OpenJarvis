@@ -65,6 +65,8 @@ def _test_config():
     # Route tests exercise the injected engine directly. Factory-level
     # config-derived security is covered separately.
     cfg.security.enabled = False
+    # The virtual `jarvis-auto` model is covered in tests/learning.
+    cfg.hybrid_routing.enabled = False
     return cfg
 
 

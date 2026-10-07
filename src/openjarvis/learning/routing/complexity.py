@@ -21,30 +21,42 @@ from openjarvis.learning._stubs import QueryAnalyzer
 
 _CODE_PATTERNS = re.compile(
     r"```|`[^`]+`|\bdef\s|\bclass\s|\bimport\s|\bfunction\s|\bconst\s|\bvar\s|\blet\s|"
-    r"\bif\s*\(|->|=>|\{\s*\}|\bfor\s+\w+\s+in\s|#include|System\.out",
+    r"\bif\s*\(|->|=>|\{\s*\}|\bfor\s+\w+\s+in\s|#include|System\.out|"
+    r"\bfunci[oó]n\b|\bclase\b|\bscript\b|\bc[oó]digo\b|\bbug\b",
     re.IGNORECASE,
 )
 _MATH_PATTERNS = re.compile(
     r"\bsolve\b|\bintegral\b|\bequation\b|\bproof\b|\bderivative\b|\bmatrix\b|"
-    r"\btheorem\b|\bcalculate\b|\bcompute\b|\bsigma\b|\bsum\b|\blimit\b|\bprobability\b",
+    r"\btheorem\b|\bcalculate\b|\bcompute\b|\bsigma\b|\bsum\b|\blimit\b|\bprobability\b|"
+    r"\bresuelve\b|\becuaci[oó]n\b|\bdemuestra\b|\bderivada\b|\bmatriz\b|"
+    r"\bteorema\b|\bcalcula\b|\bprobabilidad\b|\bl[ií]mite\b",
     re.IGNORECASE,
 )
 _REASONING_PATTERNS = re.compile(
     r"\bexplain\b|\banalyze\b|\bcompare\b|\bwhy\b"
     r"|\bstep[- ]by[- ]step\b|\breason\b|\bthink\b"
-    r"|\bpros\s+and\s+cons\b|\btrade-?\s*offs?\b|\bevaluate\b",
+    r"|\bpros\s+and\s+cons\b|\btrade-?\s*offs?\b|\bevaluate\b"
+    r"|\bexplica\b|\banaliza\b|\bcompara\b|\bpor\s+qu[eé]\b|\brazona\b"
+    r"|\bpiensa\b|\bpaso\s+a\s+paso\b|\bpros\s+y\s+contras\b"
+    r"|\bventajas\s+y\s+desventajas\b|\beval[uú]a\b|\bdiferencias?\b"
+    r"|\brecomienda\b|\brecomendaci[oó]n\b",
     re.IGNORECASE,
 )
 _MULTI_STEP_PATTERNS = re.compile(
     r"\bthen\b.*\bthen\b|\bfirst\b.*\bnext\b|\bstep\s*\d"
     r"|\b(?:and\s+also|additionally|furthermore)\b"
+    r"|\bprimero\b.*\b(?:luego|despu[eé]s|segundo)\b|\bpaso\s*\d"
+    r"|\b(?:adem[aá]s|asimismo|por\s+otro\s+lado)\b"
     r"|\b\d+\.\s",
     re.IGNORECASE | re.DOTALL,
 )
 _CREATIVE_PATTERNS = re.compile(
     r"\bwrite\b.*\b(?:essay|story|article|report|poem)\b"
     r"|\bgenerate\b.*\b(?:code|script|program)\b"
-    r"|\bcreate\b|\bdesign\b|\bdraft\b|\bcompose\b",
+    r"|\bcreate\b|\bdesign\b|\bdraft\b|\bcompose\b"
+    r"|\bescribe\b.*\b(?:ensayo|historia|art[ií]culo|informe|poema)\b"
+    r"|\bgenera\b.*\b(?:c[oó]digo|script|programa)\b"
+    r"|\bcrea\b|\bdise[nñ]a\b|\bredacta\b|\belabora\b",
     re.IGNORECASE,
 )
 

@@ -155,6 +155,41 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     return [combined_system, *non_system_messages]
 
 
+def _apply_hybrid_routing(request_body, config):
+    """Resolve the virtual model `jarvis-auto` to a concrete local or cloud model.
+
+    Mutates `request_body.model` and strips any `/local`, `/claude`, `/opus`
+    directive from the last user message. Returns the decision, or None when the
+    request did not ask for auto routing.
+    """
+    from openjarvis.learning.routing.hybrid_router import AUTO_MODEL_ID, decide
+
+    if request_body.model != AUTO_MODEL_ID or config is None:
+        return None
+    cfg = config.hybrid_routing
+    local_default = config.intelligence.default_model
+    if not cfg.enabled:
+        request_body.model = cfg.local_model or local_default
+        return None
+
+    last_user = next(
+        (m for m in reversed(request_body.messages) if m.role == "user" and m.content),
+        None,
+    )
+    decision = decide(
+        last_user.content if last_user else "",
+        cfg,
+        local_default=local_default,
+    )
+    if last_user is not None and decision.query != last_user.content:
+        last_user.content = decision.query
+    request_body.model = decision.model
+    logging.getLogger("openjarvis.server").info(
+        "jarvis-auto -> %s (%s)", decision.model, decision.reason
+    )
+    return decision
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request_body: ChatCompletionRequest, request: Request):
     """Handle chat completion requests (streaming and non-streaming)."""
@@ -169,6 +204,8 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
     # Inject memory context into messages before dispatching
     config = getattr(request.app.state, "config", None)
+    _apply_hybrid_routing(request_body, config)
+    model = request_body.model
     memory_backend = getattr(request.app.state, "memory_backend", None)
     if (
         config is not None
@@ -1132,8 +1169,16 @@ async def list_models(request: Request) -> ModelListResponse:
     # the UI auto-select nomic-embed-text and fail every generation with 400.
     model_ids = [m for m in model_ids if not is_embed_only_model(m)]
 
+    auto_entries = []
+    cfg = getattr(request.app.state, "config", None)
+    if cfg is not None and cfg.hybrid_routing.enabled:
+        from openjarvis.learning.routing.hybrid_router import AUTO_MODEL_ID
+
+        auto_entries.append(ModelObject(id=AUTO_MODEL_ID, owned_by="openjarvis"))
+
     return ModelListResponse(
-        data=[
+        data=auto_entries
+        + [
             ModelObject(
                 id=mid,
                 owned_by=(
@@ -1145,6 +1190,34 @@ async def list_models(request: Request) -> ModelListResponse:
             for mid in model_ids
         ],
     )
+
+
+@router.post("/v1/route/explain")
+async def explain_route(request: Request):
+    """Explain where `jarvis-auto` would send a message, without running it."""
+    from openjarvis.learning.routing.complexity import score_complexity
+    from openjarvis.learning.routing.hybrid_router import decide
+
+    config = getattr(request.app.state, "config", None)
+    if config is None:
+        raise HTTPException(status_code=503, detail="Config not loaded")
+    body = await request.json()
+    text = str(body.get("text", "")).strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing 'text'")
+    decision = decide(
+        text,
+        config.hybrid_routing,
+        local_default=config.intelligence.default_model,
+    )
+    return {
+        "model": decision.model,
+        "target": decision.target,
+        "reason": decision.reason,
+        "tier": decision.tier,
+        "score": decision.score,
+        "signals": score_complexity(decision.query).signals,
+    }
 
 
 @router.post("/v1/models/pull")

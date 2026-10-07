@@ -125,6 +125,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     from openjarvis.cli.pearl_cmd import pearl
     from openjarvis.cli.quickstart_cmd import quickstart
     from openjarvis.cli.registry_cmd import registry
+    from openjarvis.cli.route_cmd import route
     from openjarvis.cli.scheduler_cmd import scheduler
     from openjarvis.cli.self_update_cmd import self_update
     from openjarvis.cli.serve import serve
@@ -135,6 +136,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     from openjarvis.cli.workflow_cmd import workflow
 
     cli.add_command(init, "init")
+    cli.add_command(route, "route")
     cli.add_command(ask, "ask")
     cli.add_command(chat, "chat")
     cli.add_command(serve, "serve")
