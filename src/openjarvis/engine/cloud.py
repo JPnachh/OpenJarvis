@@ -83,6 +83,9 @@ _OPENAI_MODELS = [
     "o3-mini",
 ]
 _ANTHROPIC_MODELS = [
+    "claude-fable-5-1",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
     "claude-haiku-3-5-20241022",

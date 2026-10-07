@@ -54,6 +54,8 @@ dev = [
     "ruff>=0.4",
     "pre-commit>=3.0",
 ]
+memory-honcho = ["honcho-ai>=2.0"]
+tts-elevenlabs = []  # uses httpx; set ELEVENLABS_API_KEY
 inference-mlx = ["mlx-lm>=0.31.1; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
 inference-cloud = [
