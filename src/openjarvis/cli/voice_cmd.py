@@ -46,6 +46,16 @@ def _make_beep(play: bool):
 @click.option("--no-play", is_flag=True, help="Do not play audio; save replies.")
 @click.option("--save-dir", type=click.Path(), default=None)
 @click.option("--max-turns", type=int, default=None)
+@click.option(
+    "--find-mic",
+    is_flag=True,
+    help="Try every microphone while you speak and remember the one that hears you.",
+)
+@click.option(
+    "--monitor",
+    is_flag=True,
+    help="Diagnostics: show mic level and wake-word score live, then exit with Ctrl+C.",
+)
 def voice(
     server: str,
     model: str,
@@ -59,6 +69,8 @@ def voice(
     no_play: bool,
     save_dir: Optional[str],
     max_turns: Optional[int],
+    monitor: bool,
+    find_mic: bool,
 ) -> None:
     """Listen for "Hey Jarvis" (or two claps), then hold a spoken conversation."""
     console = Console()
@@ -67,6 +79,17 @@ def voice(
         import sounddevice as sd
 
         console.print(sd.query_devices())
+        return
+
+    if find_mic:
+        _find_mic(console)
+        return
+
+    if device is None:
+        device = _saved_device()
+
+    if monitor:
+        _monitor(console, device, wake_threshold)
         return
 
     import httpx
@@ -178,7 +201,132 @@ def voice(
         max_turns=max_turns,
     )
     source = WavSource(input_wav) if input_wav else MicSource(device)
+    if not input_wav:
+        console.print(f"Micrófono: {_device_name(device)}")
     try:
         daemon.run(source)
     except KeyboardInterrupt:
         console.print("\nAdiós.")
+
+
+def _device_name(device: Optional[int]) -> str:
+    try:
+        import sounddevice as sd
+
+        idx = device if device is not None else sd.default.device[0]
+        return f"[{idx}] {sd.query_devices(idx)['name']}"
+    except Exception as exc:  # pragma: no cover - depends on audio hardware
+        return f"desconocido ({exc})"
+
+
+def _monitor(console: Console, device: Optional[int], wake_threshold: float) -> None:
+    """Live meter: mic level, wake-word score and clap detection."""
+    import numpy as np
+
+    from openjarvis.speech.clap import ClapDetector
+    from openjarvis.speech.voice_daemon import FRAME, MicSource
+    from openjarvis.speech.wake_word import WakeWordDetector
+
+    wake = WakeWordDetector(threshold=wake_threshold)
+    clap = ClapDetector()
+    console.print(f"Micrófono: {_device_name(device)}")
+    console.print(
+        "Habla o aplaude. Nivel = volumen del micrófono; "
+        f"wake = confianza de «Hey Jarvis» (se activa a {wake_threshold}). "
+        "Ctrl+C para salir.\n"
+    )
+    peak_rms = 0.0
+    best_wake = 0.0
+    n = 0
+    try:
+        for frame in MicSource(device):
+            assert len(frame) == FRAME
+            rms = float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
+            fired_wake = wake.process(frame)
+            fired_clap = clap.process(frame)
+            peak_rms = max(peak_rms, rms)
+            best_wake = max(best_wake, wake.last_score)
+            n += 1
+            if fired_wake or fired_clap:
+                what = "HEY JARVIS" if fired_wake else "APLAUSOS"
+                console.print(f"[bold green]>>> {what} detectado[/bold green]")
+            if n % 6 == 0:  # about every 0.5 s
+                bar = "#" * min(40, int(peak_rms / 250))
+                console.print(
+                    f"nivel {int(peak_rms):5d} {bar:<40} wake {best_wake:.2f}"
+                )
+                peak_rms = 0.0
+                best_wake = 0.0
+    except KeyboardInterrupt:
+        console.print("\nListo.")
+
+
+def _device_file():
+    from pathlib import Path
+
+    from openjarvis.core.config import DEFAULT_CONFIG_DIR
+
+    return Path(DEFAULT_CONFIG_DIR) / "mic_device.txt"
+
+
+def _saved_device() -> Optional[int]:
+    """Microphone remembered by ``--find-mic`` (None if never chosen)."""
+    try:
+        return int(_device_file().read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _find_mic(console: Console, seconds: float = 3.0, min_level: int = 300) -> None:
+    """Record briefly from every input device and keep the loudest one."""
+    import numpy as np
+    import sounddevice as sd
+
+    hostapis = sd.query_hostapis()
+    candidates = []
+    for idx, dev in enumerate(sd.query_devices()):
+        if dev["max_input_channels"] < 1:
+            continue
+        if "MME" not in hostapis[dev["hostapi"]]["name"]:  # one entry per mic
+            continue
+        if "Sound Mapper" in dev["name"] or "Stereo Mix" in dev["name"]:
+            continue
+        candidates.append((idx, dev["name"]))
+
+    console.print(
+        f"Voy a probar {len(candidates)} micrófonos, {seconds:.0f} s cada uno.\n"
+        "HABLA FUERTE todo el tiempo (por ejemplo: «Hey Jarvis, uno, dos, tres»).\n"
+    )
+    results = []
+    for idx, name in candidates:
+        try:
+            audio = sd.rec(
+                int(seconds * 16000),
+                samplerate=16000,
+                channels=1,
+                dtype="int16",
+                device=idx,
+            )
+            sd.wait()
+            level = int(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
+        except Exception as exc:
+            console.print(f"  [{idx}] {name}: error ({exc})")
+            continue
+        results.append((level, idx, name))
+        console.print(f"  [{idx}] {name}: nivel {level}")
+
+    if not results:
+        console.print("[red]No pude abrir ningún micrófono.[/red]")
+        return
+    level, idx, name = max(results)
+    if level < min_level:
+        console.print(
+            "\n[red]Ningún micrófono captó voz.[/red] Revisa: Configuración de "
+            "Windows > Privacidad > Micrófono (permitir apps de escritorio) y que "
+            "el micrófono no esté silenciado."
+        )
+        return
+    file = _device_file()
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(str(idx))
+    console.print(f"\n[green]Usaré [{idx}] {name} (nivel {level}).[/green] Guardado.")
