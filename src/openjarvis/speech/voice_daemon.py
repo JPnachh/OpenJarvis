@@ -265,11 +265,6 @@ class VoiceDaemon:
             if rms < 2000:
                 self._floor = 0.98 * self._floor + 0.02 * rms
             pre.append(frame)
-            if self.status is not None:
-                peak = max(peak, rms)
-                if n % 6 == 0:  # about every 0.5 s
-                    self.status(peak, best)
-                    peak, best = 0.0, 0.0
             trigger = None
             if self.clap is not None and self.clap.process(frame):
                 trigger = "aplausos"
@@ -277,6 +272,11 @@ class VoiceDaemon:
                 trigger = "Hey Jarvis"
             if self.wake is not None:
                 best = max(best, getattr(self.wake, "last_score", 0.0))
+            if self.status is not None:
+                peak = max(peak, rms)
+                if n % 6 == 0:  # about every 0.5 s
+                    self.status(peak, best)
+                    peak, best = 0.0, 0.0
             if trigger is None:
                 continue
             self.log(f"[{trigger}] te escucho")
