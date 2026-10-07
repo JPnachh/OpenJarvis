@@ -56,6 +56,7 @@ dev = [
 ]
 memory-honcho = ["honcho-ai>=2.0"]
 tts-elevenlabs = []  # uses httpx; set ELEVENLABS_API_KEY
+voice-wake = ["openwakeword>=0.6", "sounddevice>=0.5", "soundfile>=0.12", "numpy>=1.24"]
 inference-mlx = ["mlx-lm>=0.31.1; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
 inference-cloud = [

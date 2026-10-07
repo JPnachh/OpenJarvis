@@ -133,10 +133,12 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     from openjarvis.cli.telemetry_cmd import telemetry
     from openjarvis.cli.tool_cmd import tool
     from openjarvis.cli.vault_cmd import vault
+    from openjarvis.cli.voice_cmd import voice
     from openjarvis.cli.workflow_cmd import workflow
 
     cli.add_command(init, "init")
     cli.add_command(route, "route")
+    cli.add_command(voice, "voice")
     cli.add_command(ask, "ask")
     cli.add_command(chat, "chat")
     cli.add_command(serve, "serve")
