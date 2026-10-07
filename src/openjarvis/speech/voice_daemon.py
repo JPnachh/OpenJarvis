@@ -14,6 +14,7 @@ from __future__ import annotations
 import queue
 import re
 import unicodedata
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Iterator, Optional
 
@@ -86,11 +87,21 @@ class WavSource:
 
 
 class MicSource:
-    """Live microphone via sounddevice (16 kHz mono int16, 80 ms blocks)."""
+    """Live microphone via sounddevice (16 kHz mono int16, 80 ms blocks).
 
-    def __init__(self, device: Optional[int] = None, gain: float = 1.0) -> None:
+    Raises ``RuntimeError`` if no audio arrives for ``stall_s`` seconds (sleep /
+    unplugged device), so a supervisor can restart the stream.
+    """
+
+    def __init__(
+        self,
+        device: Optional[int] = None,
+        gain: float = 1.0,
+        stall_s: float = 15.0,
+    ) -> None:
         self._device = device
         self._gain = gain
+        self._stall_s = stall_s
         self._q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=400)
 
     def flush(self) -> None:
@@ -123,7 +134,12 @@ class MicSource:
             callback=callback,
         ):
             while True:
-                yield self._q.get()
+                try:
+                    yield self._q.get(timeout=self._stall_s)
+                except queue.Empty:
+                    raise RuntimeError(
+                        f"el micrófono no entregó audio en {self._stall_s:.0f} s"
+                    ) from None
 
 
 # ------------------------------------------------------------------ recording
@@ -132,6 +148,15 @@ class MicSource:
 def _rms(frame: np.ndarray) -> float:
     x = frame.astype(np.float32)
     return float(np.sqrt(np.mean(x * x)))
+
+
+def wav_to_pcm(wav: bytes) -> np.ndarray:
+    """Decode 16-bit mono WAV bytes (as produced here) into int16 samples."""
+    import io
+    import wave
+
+    with wave.open(io.BytesIO(wav)) as w:
+        return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
 
 
 def record_utterance(
@@ -184,18 +209,30 @@ def record_utterance(
 
 # --------------------------------------------------------------------- daemon
 
+PRE_FRAMES = 30  # ~2.4 s of audio kept from before the trigger fired
+
 
 @dataclass
 class VoiceDaemon:
-    """Wires detectors, STT, the Jarvis server and TTS into one loop."""
+    """Wires detectors, STT, the Jarvis server and TTS into one loop.
+
+    ``beep(kind)`` kinds: ``ready`` (listening), ``wake`` (heard you), ``end``
+    (conversation over, back to sleep), ``denied`` (voice not recognised).
+    ``verifier(audio) -> (accepted, score)`` checks the speaker once per turn;
+    ``on_verified(audio, score)`` lets the voiceprint adapt. ``paused()`` mutes
+    the listener (privacy switch / enrolment).
+    """
 
     transcribe: Callable[[bytes], str]
     ask: Callable[[str], Optional[str]]
     say: Callable[[str], None]
-    beep: Callable[[], None] = lambda: None
+    beep: Callable[[str], None] = lambda kind="wake": None
     log: Callable[[str], None] = print
     wake: Any = None  # WakeWordDetector or None
     clap: Any = None  # ClapDetector or None
+    verifier: Optional[Callable[[np.ndarray], tuple]] = None
+    on_verified: Optional[Callable[[np.ndarray, float], None]] = None
+    paused: Callable[[], bool] = lambda: False
     follow_up_s: float = 8.0
     startup_s: float = 6.0
     max_turns: Optional[int] = None  # stop after N completed turns (testing)
@@ -209,14 +246,27 @@ class VoiceDaemon:
             "Escuchando… di «Hey Jarvis»"
             + (" o aplaude dos veces." if self.clap else ".")
         )
+        self.beep("ready")
+        pre: "deque[np.ndarray]" = deque(maxlen=PRE_FRAMES)
         peak, best, n = 0.0, 0.0, 0
+        was_paused = False
         for frame in frames:
+            n += 1
+            if n % 6 == 0:
+                now_paused = bool(self.paused())
+                if now_paused != was_paused:
+                    self.log("Escucha en pausa." if now_paused else "Escuchando…")
+                    if not now_paused:
+                        self._reset_detectors()
+                    was_paused = now_paused
+            if was_paused:
+                continue
             rms = _rms(frame)
             if rms < 2000:
                 self._floor = 0.98 * self._floor + 0.02 * rms
+            pre.append(frame)
             if self.status is not None:
                 peak = max(peak, rms)
-                n += 1
                 if n % 6 == 0:  # about every 0.5 s
                     self.status(peak, best)
                     peak, best = 0.0, 0.0
@@ -230,25 +280,56 @@ class VoiceDaemon:
             if trigger is None:
                 continue
             self.log(f"[{trigger}] te escucho")
-            self._turn(frames, source)
-            for det in (self.wake, self.clap):
-                if det is not None:
-                    det.reset()
+            self._turn(frames, source, trigger, list(pre))
+            pre.clear()
+            self._reset_detectors()
             if self.max_turns is not None and self.turns_done >= self.max_turns:
                 return
             self.log("Escuchando…")
 
-    def _turn(self, frames: Iterator[np.ndarray], source: Any) -> None:
-        self.beep()
+    def _reset_detectors(self) -> None:
+        for det in (self.wake, self.clap):
+            if det is not None:
+                det.reset()
+
+    def _check_speaker(self, wav: bytes, trigger: str, pre: list) -> bool:
+        if self.verifier is None:
+            return True
+        audio = wav_to_pcm(wav)
+        if trigger == "Hey Jarvis" and pre:  # include the wake phrase itself
+            audio = np.concatenate([*pre, audio])
+        accepted, score = self.verifier(audio)
+        if not accepted:
+            self.log(f"Voz no reconocida (similitud {score:.2f}): ignorado.")
+            self.beep("denied")
+            return False
+        if score is not None:
+            self.log(f"Voz reconocida (similitud {score:.2f}).")
+            if self.on_verified is not None:
+                self.on_verified(audio, score)
+        return True
+
+    def _turn(
+        self,
+        frames: Iterator[np.ndarray],
+        source: Any,
+        trigger: str = "Hey Jarvis",
+        pre: Optional[list] = None,
+    ) -> None:
+        self.beep("wake")
         source.flush()
         startup = self.startup_s
+        first = True
         while True:
             wav = record_utterance(frames, floor=self._floor, startup_s=startup)
             if wav is None:
+                break
+            if first and not self._check_speaker(wav, trigger, pre or []):
                 return
+            first = False
             text = strip_wake_phrase(self.transcribe(wav))
             if not text or is_cancel(text):
-                return
+                break
             self.log(f"Tú: {text}")
             reply = self.ask(text)
             if reply:
@@ -258,3 +339,4 @@ class VoiceDaemon:
             if self.max_turns is not None and self.turns_done >= self.max_turns:
                 return
             startup = self.follow_up_s  # keep the conversation open briefly
+        self.beep("end")

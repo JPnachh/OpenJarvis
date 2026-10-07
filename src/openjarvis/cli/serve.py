@@ -168,6 +168,7 @@ def serve(
     # Resolve host/port from CLI args or config
     bind_host = host or config.server.host
     bind_port = port if port is not None else config.server.port
+    config.server.port = bind_port  # the voice listener reads the effective port
 
     # Set up engine
     register_builtin_models()

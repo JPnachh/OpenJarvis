@@ -312,6 +312,20 @@ def create_app(
     # AuthMiddleware never sees WS upgrade requests). Empty = auth disabled.
     app.state.api_key = api_key
 
+    @app.on_event("startup")
+    async def _start_voice_assistant() -> None:
+        voice_cfg = getattr(config, "voice_assistant", None)
+        if voice_cfg is None or not voice_cfg.autostart:
+            return
+        if os.environ.get("OPENJARVIS_DISABLE_VOICE"):
+            return
+        try:
+            from openjarvis.speech.voice_runtime import start_background
+
+            app.state.voice_thread = start_background(config)
+        except Exception:
+            logger.warning("Voice assistant failed to start", exc_info=True)
+
     @app.on_event("shutdown")
     async def _shutdown_managed_runtime() -> None:
         # Quiesce every producer before touching the shared MCP pool. Route

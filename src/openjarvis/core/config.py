@@ -1781,6 +1781,29 @@ class HybridRoutingConfig:
 
 
 @dataclass
+class VoiceAssistantConfig:
+    """Hands-free voice assistant ("Hey Jarvis" / double clap).
+
+    With ``autostart`` the server starts the listener in a background thread,
+    so voice works whenever Jarvis is running (including at Windows login).
+    """
+
+    autostart: bool = False
+    wake: bool = True
+    clap: bool = True
+    wake_threshold: float = 0.5
+    follow_up: float = 8.0  # seconds to keep listening after a reply
+    model: str = "jarvis-auto"
+    device: int = -1  # -1 = microphone saved by `jarvis voice --find-mic`
+    gain: float = 1.0
+    speaker_verify: bool = True  # only enforced when a voiceprint is enrolled
+    speaker_adapt: bool = True  # refine the voiceprint on confident matches
+    speaker_threshold: float = 0.0  # 0 = use the value computed at enrolment
+    idle_reset_min: float = 10.0  # forget the spoken conversation after this
+    chime: bool = True
+
+
+@dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
 
@@ -1815,6 +1838,9 @@ class JarvisConfig:
     digest: DigestConfig = field(default_factory=DigestConfig)
     proactive: ProactiveConfig = field(default_factory=ProactiveConfig)
     hybrid_routing: HybridRoutingConfig = field(default_factory=HybridRoutingConfig)
+    voice_assistant: VoiceAssistantConfig = field(
+        default_factory=VoiceAssistantConfig
+    )
     mining: Optional["MiningConfig"] = None
 
     @property
@@ -2131,6 +2157,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "compression",
             "skills",
             "hybrid_routing",
+            "voice_assistant",
         )
         for section_name in top_sections:
             if section_name in data:

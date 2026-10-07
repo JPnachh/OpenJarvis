@@ -43,3 +43,51 @@ uv run --no-sync jarvis voice --input-wav question.wav --no-play --save-dir out 
 
 - No barge-in: the microphone is not heard while Jarvis is speaking.
 - Latency is typically several seconds (local STT + model + TTS).
+
+## Always-on mode (integrated with the server)
+
+With `[voice_assistant] autostart = true` in `~/.openjarvis/config.toml`, the API
+server starts the listener in a background thread. Anything that starts the server
+(`jarvis serve`, `jarvis gui`, a Windows login task) therefore also starts voice —
+no separate window. A supervisor restarts the microphone stream if it stalls
+(sleep, unplugged device). Only one listener runs at a time (loopback lock).
+
+```toml
+[voice_assistant]
+autostart = true
+follow_up = 8.0          # seconds to keep listening after a reply
+idle_reset_min = 10      # forget the spoken conversation after this idle time
+speaker_verify = true    # only enforced once you enrol your voice
+speaker_threshold = 0.0  # 0 = use the value computed at enrolment
+chime = true             # ready / wake / end / denied sounds
+```
+
+Chimes: double rising tone = listening, single high = heard you, falling =
+conversation over, low buzz = voice not recognised.
+
+Logs: `~/.openjarvis/voice.log`. Mute switch: `jarvis voice --toggle-pause`
+(creates/removes `~/.openjarvis/voice.pause`).
+
+## Teaching Jarvis your voice
+
+```bash
+jarvis voice --enroll        # read 6 phrases; saves ~/.openjarvis/voiceprint.npz
+jarvis voice --forget-voice  # delete it
+```
+
+A 26 MB WeSpeaker model (via sherpa-onnx) turns speech into a voiceprint. After
+enrolment, the first utterance of each conversation (including the "Hey Jarvis"
+audio) must match it, otherwise it is ignored. The voiceprint refines itself
+slowly on confident matches (`speaker_adapt`). It is picked up without a restart.
+
+**This is a convenience filter, not security.** Measured with synthetic voices:
+the enrolled voice scored 0.82-0.86, a very different voice 0.42-0.55, but a
+similar-sounding male voice reached 0.64-0.72. Recordings or voice clones of you
+can pass, and noise or a different microphone lowers your own score. The
+voiceprint is biometric data; it stays on this machine.
+
+## Windows login
+
+Scripts live outside the repo (they contain machine paths): a hidden launcher
+`~/.openjarvis/bin/jarvis-background.{vbs,bat}` and a copy of the `.vbs` in the
+user's Startup folder. Create that copy from your own (non-sandboxed) session.

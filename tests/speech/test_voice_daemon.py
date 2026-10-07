@@ -217,3 +217,71 @@ def test_no_trigger_means_no_turn():
     d, said, asked = _daemon(["x"], [])
     d.run(_Source(np.concatenate([speech(2), silence(2)])))
     assert asked == [] and said == []
+
+
+# ------------------------------------------------- speaker check / pause / beeps
+
+
+def _daemon_with(**kw):
+    said, asked, beeps, logs = [], [], [], []
+    texts = iter(kw.pop("transcripts", ["hola"]))
+    d = VoiceDaemon(
+        transcribe=lambda wav: next(texts, ""),
+        ask=lambda t: (asked.append(t), "ok")[1],
+        say=said.append,
+        beep=beeps.append,
+        log=logs.append,
+        wake=_FireOnce(),
+        **kw,
+    )
+    return d, said, asked, beeps, logs
+
+
+def _wake_audio():
+    return np.concatenate(
+        [np.zeros(FRAME * 6, dtype=np.int16), _marker(), speech(1), silence(13)]
+    )
+
+
+def test_unrecognised_voice_is_ignored_and_denied_beep_plays():
+    d, said, asked, beeps, logs = _daemon_with(
+        verifier=lambda audio: (False, 0.21), max_turns=1
+    )
+    d.run(_Source(_wake_audio()))
+    assert asked == [] and said == []
+    assert "denied" in beeps and "end" not in beeps
+    assert any("no reconocida" in m for m in logs)
+
+
+def test_recognised_voice_proceeds_and_adapts():
+    seen = []
+    d, said, asked, beeps, _ = _daemon_with(
+        verifier=lambda audio: (True, 0.9),
+        on_verified=lambda audio, score: seen.append(score),
+        max_turns=1,
+    )
+    d.run(_Source(_wake_audio()))
+    assert asked == ["hola"] and seen == [0.9]
+
+
+def test_verifier_receives_wake_phrase_audio_for_voice_trigger():
+    lengths = []
+    d, *_ = _daemon_with(
+        verifier=lambda audio: (lengths.append(len(audio)) or True, 0.8),
+        max_turns=1,
+    )
+    d.run(_Source(_wake_audio()))
+    assert lengths and lengths[0] > SR  # pre-trigger audio + utterance
+
+
+def test_beep_sequence_ready_wake_end():
+    d, *_rest, beeps, _ = (_daemon_with(max_turns=None)[0],) + _daemon_with()[1:]
+    d, said, asked, beeps, logs = _daemon_with()
+    d.run(_Source(_wake_audio()))
+    assert beeps[0] == "ready" and "wake" in beeps and beeps[-1] == "end"
+
+
+def test_paused_listener_ignores_triggers():
+    d, said, asked, beeps, logs = _daemon_with(paused=lambda: True)
+    d.run(_Source(_wake_audio()))
+    assert asked == [] and "wake" not in beeps

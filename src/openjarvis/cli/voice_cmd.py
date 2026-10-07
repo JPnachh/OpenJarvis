@@ -7,86 +7,69 @@ from typing import Optional
 import click
 from rich.console import Console
 
-from openjarvis.cli._voice_chat import VoiceSession, _terminal_safe_text
-
-
-def _make_beep(play: bool):
-    def beep() -> None:
-        if not play:
-            return
-        try:
-            import numpy as np
-            import sounddevice as sd
-
-            t = np.linspace(0, 0.12, int(24000 * 0.12), endpoint=False)
-            tone = 0.25 * np.sin(2 * np.pi * 880 * t) * np.linspace(1, 0.2, t.size)
-            sd.play(tone.astype("float32"), 24000)
-            sd.wait()
-        except Exception:
-            pass
-
-    return beep
+from openjarvis.cli._voice_chat import _terminal_safe_text
 
 
 @click.command("voice")
-@click.option("--server", default="http://localhost:8000", show_default=True)
-@click.option("--model", default="jarvis-auto", show_default=True)
+@click.option(
+    "--server", default=None, help="Jarvis server URL (default: from config)."
+)
+@click.option("--model", default=None, help="Model (default: jarvis-auto).")
 @click.option("--device", type=int, default=None, help="Microphone device index.")
 @click.option("--list-devices", is_flag=True, help="List audio devices and exit.")
-@click.option("--clap/--no-clap", default=True, show_default=True)
-@click.option("--wake/--no-wake", default=True, show_default=True)
-@click.option("--wake-threshold", type=float, default=0.5, show_default=True)
-@click.option("--follow-up", type=float, default=8.0, show_default=True)
+@click.option("--clap/--no-clap", default=None)
+@click.option("--wake/--no-wake", default=None)
+@click.option("--wake-threshold", type=float, default=None)
+@click.option("--follow-up", type=float, default=None)
+@click.option(
+    "--gain", type=float, default=None, help="Digital mic gain (2-6 if quiet)."
+)
+@click.option("--debug", is_flag=True, help="Live mic level / wake-word score line.")
+@click.option(
+    "--find-mic", is_flag=True, help="Try every mic while you speak; remember the best."
+)
+@click.option("--monitor", is_flag=True, help="Diagnostics meter, Ctrl+C to exit.")
+@click.option(
+    "--enroll", is_flag=True, help="Teach Jarvis your voice (reads 6 phrases)."
+)
+@click.option("--forget-voice", is_flag=True, help="Delete the saved voiceprint.")
+@click.option("--no-speaker", is_flag=True, help="Do not verify who is speaking.")
+@click.option("--toggle-pause", is_flag=True, help="Mute/unmute the listener and exit.")
 @click.option(
     "--input-wav",
     type=click.Path(exists=True),
     default=None,
-    help="Test mode: use this WAV instead of the microphone.",
+    help="Test: use a WAV, not the mic.",
 )
 @click.option("--no-play", is_flag=True, help="Do not play audio; save replies.")
 @click.option("--save-dir", type=click.Path(), default=None)
 @click.option("--max-turns", type=int, default=None)
-@click.option(
-    "--debug",
-    is_flag=True,
-    help="Show a live line with mic level and wake-word score.",
-)
-@click.option(
-    "--gain",
-    type=float,
-    default=1.0,
-    show_default=True,
-    help="Digital microphone gain (use 2-6 if your mic is quiet).",
-)
-@click.option(
-    "--find-mic",
-    is_flag=True,
-    help="Try every microphone while you speak and remember the one that hears you.",
-)
-@click.option(
-    "--monitor",
-    is_flag=True,
-    help="Diagnostics: show mic level and wake-word score live, then exit with Ctrl+C.",
-)
 def voice(
-    server: str,
-    model: str,
+    server: Optional[str],
+    model: Optional[str],
     device: Optional[int],
     list_devices: bool,
-    clap: bool,
-    wake: bool,
-    wake_threshold: float,
-    follow_up: float,
+    clap: Optional[bool],
+    wake: Optional[bool],
+    wake_threshold: Optional[float],
+    follow_up: Optional[float],
+    gain: Optional[float],
+    debug: bool,
+    find_mic: bool,
+    monitor: bool,
+    enroll: bool,
+    forget_voice: bool,
+    no_speaker: bool,
+    toggle_pause: bool,
     input_wav: Optional[str],
     no_play: bool,
     save_dir: Optional[str],
     max_turns: Optional[int],
-    monitor: bool,
-    find_mic: bool,
-    debug: bool,
-    gain: float,
 ) -> None:
     """Listen for "Hey Jarvis" (or two claps), then hold a spoken conversation."""
+    from openjarvis.core.config import load_config
+    from openjarvis.speech import voice_runtime as rt
+
     console = Console()
 
     if list_devices:
@@ -94,130 +77,94 @@ def voice(
 
         console.print(sd.query_devices())
         return
-
     if find_mic:
         _find_mic(console)
         return
+    if toggle_pause:
+        now = not rt.is_paused()
+        rt.set_paused(now)
+        console.print("Escucha PAUSADA." if now else "Escucha ACTIVA.")
+        return
+    if forget_voice:
+        from openjarvis.speech.speaker_id import SpeakerVerifier
 
-    if device is None:
-        device = _saved_device()
+        SpeakerVerifier().clear()
+        console.print("Huella de voz borrada.")
+        return
+
+    config = load_config()
+    opts = rt.options_from_config(config, server)
+    if model:
+        opts.model = model
+    if device is not None:
+        opts.device = device
+    if clap is not None:
+        opts.clap = clap
+    if wake is not None:
+        opts.wake = wake
+    if wake_threshold is not None:
+        opts.wake_threshold = wake_threshold
+    if follow_up is not None:
+        opts.follow_up = follow_up
+    if gain is not None:
+        opts.gain = gain
+    if no_speaker:
+        opts.speaker_verify = False
+    opts.play = not no_play
+    opts.input_wav = input_wav
+    opts.save_dir = save_dir
+    opts.max_turns = max_turns
+
+    def log(message: str) -> None:
+        console.print(_terminal_safe_text(message))
 
     if monitor:
-        _monitor(console, device, wake_threshold, gain)
+        _monitor(console, opts.device, opts.wake_threshold, opts.gain)
+        return
+
+    if enroll:
+        console.print(f"Micrófono: {_device_name(opts.device)}")
+        console.print(
+            "Voy a enseñarle tu voz. Habla con tu tono normal, a la distancia a la que "
+            "sueles hablarle a Jarvis.\nSe pausa la escucha mientras tanto.\n"
+        )
+        try:
+            info = rt.enroll_voice(opts, log)
+        except Exception as exc:
+            raise click.ClickException(f"No pude registrar tu voz: {exc}")
+        console.print(
+            f"\n[green]Voz registrada[/green] con {info['samples']} muestras "
+            f"(consistencia {info['mean_similarity']:.2f}, "
+            f"umbral {info['threshold']:.2f}). "
+            "Jarvis ya la usa, no hace falta reiniciar."
+        )
         return
 
     import httpx
 
-    from openjarvis.core.config import load_config
-    from openjarvis.speech.voice_daemon import (
-        VOICE_SYSTEM_PROMPT,
-        MicSource,
-        VoiceDaemon,
-        WavSource,
-        strip_markdown,
-    )
-
-    config = load_config()
-    session = VoiceSession(config)
-    stt = session.get_stt_backend()
-    if stt is None:
-        raise click.ClickException("No speech-to-text backend (extra 'speech').")
-    language = getattr(config.speech, "language", "") or None
-
     try:
-        httpx.get(f"{server}/health", timeout=3).raise_for_status()
+        httpx.get(f"{opts.server_url}/health", timeout=3).raise_for_status()
     except Exception as exc:
         raise click.ClickException(
-            f"Jarvis server not reachable at {server}. Start it first "
-            f"('Iniciar Jarvis.bat'). ({exc})"
+            f"Jarvis no responde en {opts.server_url}. Inícialo primero. ({exc})"
         )
 
-    history: list[dict] = []
-
-    def transcribe(wav: bytes) -> str:
-        return stt.transcribe(wav, format="wav", language=language).text.strip()
-
-    def ask(text: str) -> Optional[str]:
-        messages = [{"role": "system", "content": VOICE_SYSTEM_PROMPT}]
-        messages += history[-8:] + [{"role": "user", "content": text}]
-        try:
-            resp = httpx.post(
-                f"{server}/v1/chat/completions",
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "stream": False,
-                    "max_tokens": 400,
-                },
-                timeout=180,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            reply = strip_markdown(data["choices"][0]["message"]["content"] or "")
-        except Exception as exc:
-            console.print(
-                f"[red]Error con el servidor: {_terminal_safe_text(exc)}[/red]"
-            )
-            return "No pude conectar con el servidor de Jarvis."
-        history.append({"role": "user", "content": text})
-        history.append({"role": "assistant", "content": reply})
-        used = data.get("model", "?")
-        console.print(f"[dim]({used})[/dim] Jarvis: {_terminal_safe_text(reply)}")
-        return reply
-
-    saved = {"n": 0}
-
-    def say(text: str) -> None:
-        backend = session.get_tts_backend()
-        if backend is None:
-            return
-        voice_id, speed = session.voice_for_backend(backend, console)
-        kwargs = {"output_format": "wav", "speed": speed}
-        if voice_id:
-            kwargs["voice_id"] = voice_id
-        result = backend.synthesize(text[:1500], **kwargs)
-        if not result.audio:
-            return
-        if no_play:
-            from pathlib import Path
-
-            out = Path(save_dir or ".")
-            out.mkdir(parents=True, exist_ok=True)
-            saved["n"] += 1
-            (out / f"reply_{saved['n']}.wav").write_bytes(result.audio)
-        else:
-            from openjarvis.speech.voice_io import play_wav
-
-            play_wav(result.audio, sample_rate=result.sample_rate)
-
-    clap_det = None
-    if clap:
-        from openjarvis.speech.clap import ClapDetector
-
-        clap_det = ClapDetector()
-    wake_det = None
-    if wake:
-        from openjarvis.speech.wake_word import WakeWordDetector
-
-        wake_det = WakeWordDetector(threshold=wake_threshold)
-    if clap_det is None and wake_det is None:
-        raise click.ClickException("Enable at least one of --clap / --wake.")
-
-    daemon = VoiceDaemon(
-        transcribe=transcribe,
-        ask=ask,
-        say=say,
-        beep=_make_beep(not no_play and input_wav is None),
-        log=lambda m: console.print(_terminal_safe_text(m)),
-        wake=wake_det,
-        clap=clap_det,
-        follow_up_s=follow_up,
-        max_turns=max_turns,
-        status=_status_line(console, wake_threshold) if debug else None,
-    )
-    source = WavSource(input_wav) if input_wav else MicSource(device, gain)
     if not input_wav:
-        console.print(f"Micrófono: {_device_name(device)}")
+        lock = rt.acquire_single_instance()
+        if lock is None:
+            raise click.ClickException(
+                "Jarvis ya está escuchando en segundo plano (no hace falta abrir este "
+                "modo). Para verlo en vivo: pausa/cierra el servidor o usa --monitor."
+            )
+
+    if debug:
+        opts.debug_status = _status_line(console, opts.wake_threshold)
+    try:
+        daemon, source = rt.build_daemon(config, opts, log)
+    except Exception as exc:
+        raise click.ClickException(str(exc))
+    if not input_wav:
+        console.print(f"Micrófono: {_device_name(opts.device)}")
     try:
         daemon.run(source)
     except KeyboardInterrupt:
@@ -278,26 +225,12 @@ def _monitor(
         console.print("\nListo.")
 
 
-def _device_file():
-    from pathlib import Path
-
-    from openjarvis.core.config import DEFAULT_CONFIG_DIR
-
-    return Path(DEFAULT_CONFIG_DIR) / "mic_device.txt"
-
-
-def _saved_device() -> Optional[int]:
-    """Microphone remembered by ``--find-mic`` (None if never chosen)."""
-    try:
-        return int(_device_file().read_text().strip())
-    except (OSError, ValueError):
-        return None
-
-
 def _find_mic(console: Console, seconds: float = 3.0, min_level: int = 300) -> None:
     """Record briefly from every input device and keep the loudest one."""
     import numpy as np
     import sounddevice as sd
+
+    from openjarvis.speech.voice_runtime import device_file
 
     hostapis = sd.query_hostapis()
     candidates = []
@@ -343,7 +276,7 @@ def _find_mic(console: Console, seconds: float = 3.0, min_level: int = 300) -> N
             "el micrófono no esté silenciado."
         )
         return
-    file = _device_file()
+    file = device_file()
     file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text(str(idx))
     console.print(f"\n[green]Usaré [{idx}] {name} (nivel {level}).[/green] Guardado.")
