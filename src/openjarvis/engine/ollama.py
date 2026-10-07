@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Dict, List
 
@@ -103,6 +105,17 @@ def _ollama_request_options(
     return options
 
 
+# Ollama's CUDA runner sometimes dies while loading a cold model ("llama-server
+# process has terminated ... CUDA error"); loading it again a moment later works.
+_RUNNER_CRASH_MARKER = "llama-server process has terminated"
+_RUNNER_RETRIES = 2
+_RUNNER_RETRY_DELAY = 1.5
+
+
+def _is_runner_crash(status_code: int, body: str) -> bool:
+    return status_code == 500 and _RUNNER_CRASH_MARKER in (body or "")
+
+
 @EngineRegistry.register("ollama")
 class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
     """Ollama backend via its native HTTP API."""
@@ -137,6 +150,22 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
         self._client = httpx.Client(base_url=self._host, timeout=timeout)
         # Last stream usage — captured from Ollama's final chunk
         self._last_stream_usage: Dict[str, int] = {}
+
+    def _post_chat(self, payload: Dict[str, Any]) -> httpx.Response:
+        """POST /api/chat, retrying when the model runner crashes while loading."""
+        resp = self._client.post("/api/chat", json=payload)
+        for attempt in range(_RUNNER_RETRIES):
+            if not _is_runner_crash(resp.status_code, resp.text):
+                break
+            logger.warning(
+                "Ollama runner crashed loading %s (retry %d/%d)",
+                payload.get("model"),
+                attempt + 1,
+                _RUNNER_RETRIES,
+            )
+            time.sleep(_RUNNER_RETRY_DELAY)
+            resp = self._client.post("/api/chat", json=payload)
+        return resp
 
     def generate(
         self,
@@ -190,11 +219,11 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
             elif isinstance(response_format, dict):
                 payload["format"] = "json"
         try:
-            resp = self._client.post("/api/chat", json=payload)
+            resp = self._post_chat(payload)
             if resp.status_code == 400 and tools:
                 # Model may not support function calling -- retry without tools
                 payload.pop("tools", None)
-                resp = self._client.post("/api/chat", json=payload)
+                resp = self._post_chat(payload)
             resp.raise_for_status()
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             raise EngineConnectionError(
@@ -280,6 +309,7 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
+        runner_attempt = kwargs.pop("_runner_attempt", 0)
         payload: Dict[str, Any] = {
             "model": model,
             "messages": messages_to_dicts(messages),
@@ -317,6 +347,27 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
                     # Read the (short) error body before touching ``.text``:
                     # a streaming response is otherwise unread.
                     await resp.aread()
+                    if (
+                        _is_runner_crash(resp.status_code, resp.text)
+                        and runner_attempt < _RUNNER_RETRIES
+                    ):
+                        logger.warning(
+                            "Ollama runner crashed loading %s (retry %d/%d)",
+                            model,
+                            runner_attempt + 1,
+                            _RUNNER_RETRIES,
+                        )
+                        await asyncio.sleep(_RUNNER_RETRY_DELAY)
+                        async for tok in self.stream(
+                            messages,
+                            model=model,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            _runner_attempt=runner_attempt + 1,
+                            **kwargs,
+                        ):
+                            yield tok
+                        return
                     self._raise_stream_http_error(resp.status_code, resp.text)
                 async for line in resp.aiter_lines():
                     if not line.strip():
@@ -409,6 +460,7 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
         messages: Sequence[Message],
         *,
         retry_without_tools: bool,
+        runner_attempt: int = 0,
     ) -> AsyncIterator[StreamChunk]:
         """Execute the streaming request and yield parsed StreamChunks."""
         try:
@@ -436,6 +488,25 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
                 # silent EMPTY stream rather than a clean engine error.
                 if not resp.is_success:
                     await resp.aread()
+                    if (
+                        _is_runner_crash(resp.status_code, resp.text)
+                        and runner_attempt < _RUNNER_RETRIES
+                    ):
+                        logger.warning(
+                            "Ollama runner crashed loading %s (retry %d/%d)",
+                            payload.get("model"),
+                            runner_attempt + 1,
+                            _RUNNER_RETRIES,
+                        )
+                        await asyncio.sleep(_RUNNER_RETRY_DELAY)
+                        async for c in self._run_stream(
+                            payload,
+                            messages,
+                            retry_without_tools=retry_without_tools,
+                            runner_attempt=runner_attempt + 1,
+                        ):
+                            yield c
+                        return
                     self._raise_stream_http_error(resp.status_code, resp.text)
 
                 finish_reason: str | None = None

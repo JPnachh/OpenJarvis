@@ -12,6 +12,7 @@ from typing import Optional
 import numpy as np
 
 FRAME_SAMPLES = 1280  # 80 ms at 16 kHz, the size openWakeWord expects
+RESET_COOLDOWN_FRAMES = 6  # ~0.5 s: lets a deliberate re-trigger through
 
 
 class WakeWordDetector:
@@ -47,7 +48,7 @@ class WakeWordDetector:
 
     def reset(self) -> None:
         self._model.reset()
-        self._cooldown = self._cooldown_frames
+        self._cooldown = RESET_COOLDOWN_FRAMES
         self._buf = np.zeros(0, dtype=np.int16)
 
     def process(self, frame: np.ndarray) -> bool:

@@ -105,3 +105,27 @@ def test_background_status_logs_sound_and_heartbeat(monkeypatch):
     clock["t"] += 61
     status(50.0, 0.0)
     assert "[vivo]" in lines[-1] and "2600" in lines[-1]
+
+
+def test_spanish_clock_and_prompt():
+    import datetime as dt
+
+    now = dt.datetime(2026, 10, 7, 14, 5)  # a Wednesday
+    assert rt.spanish_now(now) == "miércoles 7 de octubre de 2026, 14:05"
+    prompt = rt.voice_system_prompt("BASE", "Santo Domingo", now)
+    assert prompt.startswith("BASE") and "7 de octubre de 2026" in prompt
+    assert "Santo Domingo" in prompt
+    assert "está en" not in rt.voice_system_prompt("BASE", "", now)
+
+
+def test_models_to_try_falls_back_to_claude_only_when_available():
+    assert rt.models_to_try("jarvis-auto", "claude-sonnet-5-5", True) == [
+        "jarvis-auto",
+        "claude-sonnet-5-5",
+    ]
+    assert rt.models_to_try("jarvis-auto", "claude-sonnet-5-5", False) == [
+        "jarvis-auto"
+    ]
+    assert rt.models_to_try("claude-sonnet-5-5", "claude-sonnet-5-5", True) == [
+        "claude-sonnet-5-5"
+    ]

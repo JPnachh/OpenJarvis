@@ -35,6 +35,8 @@ export interface AgentEvent {
 // ── localStorage persistence ──────────────────────────────────────────
 
 const CONVERSATIONS_KEY = 'openjarvis-conversations';
+/** Spoken exchanges from the hands-free assistant are mirrored into this chat. */
+export const VOICE_CONVERSATION_TITLE = '🎙 Conversación por voz';
 const SETTINGS_KEY = 'openjarvis-settings';
 const OPTIN_KEY = 'openjarvis-optin';
 const OPTIN_NAME_KEY = 'openjarvis-display-name';
@@ -148,6 +150,14 @@ const INITIAL_STREAM: StreamState = {
   content: '',
 };
 
+export interface VoiceTurn {
+  id: string; // unique per server session + sequence; used to deduplicate
+  user: string;
+  assistant: string;
+  model: string;
+  ts: number; // unix seconds
+}
+
 interface AppState {
   // Conversations
   conversations: Conversation[];
@@ -190,6 +200,7 @@ interface AppState {
   deleteConversation: (id: string) => void;
   loadMessages: (conversationId: string | null) => void;
   addMessage: (conversationId: string, message: ChatMessage) => void;
+  addVoiceTurn: (turn: VoiceTurn) => void;
   updateLastAssistant: (
     conversationId: string,
     content: string,
@@ -413,6 +424,55 @@ export const useAppStore = create<AppState>((set, get) => {
       const store = loadConversations();
       const conv = store.conversations[conversationId];
       set({ messages: conv ? conv.messages : [] });
+    },
+
+    addVoiceTurn: (turn: VoiceTurn) => {
+      const store = loadConversations();
+      let conv = Object.values(store.conversations).find(
+        (c) => c.title === VOICE_CONVERSATION_TITLE,
+      );
+      if (!conv) {
+        conv = {
+          id: generateId(),
+          title: VOICE_CONVERSATION_TITLE,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          model: turn.model || 'jarvis-auto',
+          messages: [],
+        };
+        store.conversations[conv.id] = conv;
+      }
+      const userId = `${turn.id}-u`;
+      // Several tabs (or a reconnect snapshot) can deliver the same turn.
+      if (conv.messages.some((m) => m.id === userId)) return;
+      const at = Math.round(turn.ts * 1000);
+      if (turn.user) {
+        conv.messages.push({
+          id: userId,
+          role: 'user',
+          content: turn.user,
+          timestamp: at,
+        });
+      }
+      if (turn.assistant) {
+        conv.messages.push({
+          id: `${turn.id}-a`,
+          role: 'assistant',
+          content: turn.assistant,
+          timestamp: at,
+          telemetry: { engine: 'voz', model_id: turn.model || undefined },
+        });
+      }
+      conv.updatedAt = Date.now();
+      saveConversations(store);
+      const conversations = Object.values(store.conversations).sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      );
+      if (get().activeId === conv.id) {
+        set({ messages: [...conv.messages], conversations });
+      } else {
+        set({ conversations });
+      }
     },
 
     addMessage: (conversationId: string, message: ChatMessage) => {

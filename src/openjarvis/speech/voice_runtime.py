@@ -91,10 +91,11 @@ def acquire_single_instance(port: int = LOCK_PORT) -> Optional[socket.socket]:
 
 def make_beeper(enabled: bool = True) -> Callable[[str], None]:
     tones = {
-        "ready": [(660, 0.09), (880, 0.12)],
-        "wake": [(880, 0.12)],
-        "end": [(660, 0.09), (440, 0.14)],
-        "denied": [(220, 0.28)],
+        "ready": [(660, 0.10), (880, 0.14)],  # listening
+        "wake": [(988, 0.16)],  # heard you, speak now
+        "got": [(1320, 0.05)],  # finished recording, thinking
+        "end": [(784, 0.12), (587, 0.12), (392, 0.20)],  # back to sleep
+        "denied": [(196, 0.35)],  # voice not recognised
     }
 
     def beep(kind: str = "wake") -> None:
@@ -108,7 +109,7 @@ def make_beeper(enabled: bool = True) -> Callable[[str], None]:
             for freq, dur in tones.get(kind, tones["wake"]):
                 t = np.linspace(0, dur, int(sr * dur), endpoint=False)
                 parts.append(
-                    0.22 * np.sin(2 * np.pi * freq * t) * np.linspace(1, 0.3, t.size)
+                    0.40 * np.sin(2 * np.pi * freq * t) * np.linspace(1, 0.3, t.size)
                 )
             sd.play(np.concatenate(parts).astype("float32"), sr)
             sd.wait()
@@ -116,6 +117,83 @@ def make_beeper(enabled: bool = True) -> Callable[[str], None]:
             logger.debug("beep failed", exc_info=True)
 
     return beep
+
+
+SPANISH_DAYS = [
+    "lunes",
+    "martes",
+    "miércoles",
+    "jueves",
+    "viernes",
+    "sábado",
+    "domingo",
+]
+SPANISH_MONTHS = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]  # fmt: skip
+
+
+def spanish_now(now: Optional[Any] = None) -> str:
+    """Current local date and time in Spanish (weekday, day, month, year, HH:MM)."""
+    import datetime as _dt
+
+    now = now or _dt.datetime.now()
+    return (
+        f"{SPANISH_DAYS[now.weekday()]} {now.day} de {SPANISH_MONTHS[now.month - 1]} "
+        f"de {now.year}, {now:%H:%M}"
+    )
+
+
+def voice_system_prompt(
+    base: str, location: str = "", now: Optional[Any] = None
+) -> str:
+    """Voice-mode prompt plus the real clock (the model has no clock of its own)."""
+    parts = [base, f"Fecha y hora actuales del usuario: {spanish_now(now)}."]
+    if location:
+        parts.append(
+            f"El usuario está en {location}; úsalo para clima y búsquedas locales."
+        )
+    return " ".join(parts)
+
+
+def models_to_try(model: str, cloud_model: str, cloud_ok: bool) -> list[str]:
+    """The requested model first, then Claude as a fallback if it is available."""
+    chain = [model]
+    if cloud_ok and cloud_model and cloud_model != model:
+        chain.append(cloud_model)
+    return chain
+
+
+class HttpEmitter:
+    """Posts voice events to the Jarvis server without blocking the audio loop."""
+
+    def __init__(self, server_url: str) -> None:
+        import queue as _queue
+
+        self._url = f"{server_url}/v1/voice/events"
+        self._q: "_queue.Queue[dict]" = _queue.Queue(maxsize=100)
+        self._thread = threading.Thread(
+            target=self._run, name="voice-events", daemon=True
+        )
+        self._thread.start()
+
+    def __call__(self, kind: str, **data: Any) -> None:
+        try:
+            self._q.put_nowait({"type": kind, **data})
+        except Exception:
+            pass  # a full queue only means the UI misses an update
+
+    def _run(self) -> None:
+        import httpx
+
+        with httpx.Client(timeout=2.0) as client:
+            while True:
+                event = self._q.get()
+                try:
+                    client.post(self._url, json=event)
+                except Exception:
+                    logger.debug("voice event not delivered", exc_info=True)
 
 
 # ---------------------------------------------------------------- options
@@ -136,11 +214,13 @@ class VoiceOptions:
     speaker_threshold: float = 0.0
     idle_reset_min: float = 10.0
     chime: bool = True
+    location: str = ""
     play: bool = True
     input_wav: Optional[str] = None
     save_dir: Optional[str] = None
     debug_status: Optional[Callable[[float, float], None]] = None
     max_turns: Optional[int] = None
+    emit: Optional[Callable[..., None]] = None
 
 
 def options_from_config(config: Any, server_url: Optional[str] = None) -> VoiceOptions:
@@ -159,6 +239,7 @@ def options_from_config(config: Any, server_url: Optional[str] = None) -> VoiceO
         speaker_threshold=va.speaker_threshold,
         idle_reset_min=va.idle_reset_min,
         chime=va.chime,
+        location=va.location,
     )
 
 
@@ -196,6 +277,7 @@ def build_daemon(config: Any, opts: VoiceOptions, log: Callable[[str], None]):
     import httpx
 
     from openjarvis.cli._voice_chat import VoiceSession
+    from openjarvis.learning.routing.hybrid_router import cloud_available
     from openjarvis.speech.voice_daemon import (
         VOICE_SYSTEM_PROMPT,
         MicSource,
@@ -204,6 +286,7 @@ def build_daemon(config: Any, opts: VoiceOptions, log: Callable[[str], None]):
         strip_markdown,
     )
 
+    emit = opts.emit or HttpEmitter(opts.server_url)
     session = VoiceSession(config)
     stt = session.get_stt_backend()
     if stt is None:
@@ -225,31 +308,45 @@ def build_daemon(config: Any, opts: VoiceOptions, log: Callable[[str], None]):
         ):
             history.clear()  # a new conversation after a long pause
         last_activity["t"] = now
-        messages = [{"role": "system", "content": VOICE_SYSTEM_PROMPT}]
+        prompt = voice_system_prompt(VOICE_SYSTEM_PROMPT, opts.location)
+        messages = [{"role": "system", "content": prompt}]
         messages += history[-8:] + [{"role": "user", "content": text}]
-        try:
-            resp = httpx.post(
-                f"{opts.server_url}/v1/chat/completions",
-                json={
-                    "model": opts.model,
-                    "messages": messages,
-                    "stream": False,
-                    "max_tokens": 400,
-                },
-                timeout=180,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            reply = strip_markdown(data["choices"][0]["message"]["content"] or "")
-        except Exception as exc:
-            log(f"Error con el servidor: {exc}")
-            return "No pude conectar con el servidor de Jarvis."
+        data = None
+        reply = ""
+        chain = models_to_try(
+            opts.model, config.hybrid_routing.cloud_model, cloud_available()
+        )
+        for i, model_name in enumerate(chain):
+            try:
+                resp = httpx.post(
+                    f"{opts.server_url}/v1/chat/completions",
+                    json={
+                        "model": model_name,
+                        "messages": messages,
+                        "stream": False,
+                        "max_tokens": 400,
+                    },
+                    timeout=180,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                reply = strip_markdown(data["choices"][0]["message"]["content"] or "")
+                break
+            except Exception as exc:
+                log(f"Error con el modelo {model_name}: {exc}")
+                if i + 1 < len(chain):
+                    log(f"Pruebo con {chain[i + 1]}…")
+        if data is None:
+            return "No pude conseguir una respuesta del servidor de Jarvis."
         history.append({"role": "user", "content": text})
         history.append({"role": "assistant", "content": reply})
-        log(f"({data.get('model', '?')}) Jarvis: {reply}")
+        used = data.get("model", "?")
+        log(f"({used}) Jarvis: {reply}")
+        emit("turn", user=text, assistant=reply, model=used)
         return reply
 
     def say(text: str) -> None:
+        emit("state", state="speaking")
         backend = session.get_tts_backend()
         if backend is None:
             return
@@ -342,6 +439,7 @@ def build_daemon(config: Any, opts: VoiceOptions, log: Callable[[str], None]):
         verifier=verifier,
         on_verified=on_verified,
         paused=is_paused,
+        emit=emit,
         follow_up_s=opts.follow_up,
         max_turns=opts.max_turns,
         status=opts.debug_status

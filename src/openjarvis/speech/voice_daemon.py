@@ -216,8 +216,10 @@ PRE_FRAMES = 30  # ~2.4 s of audio kept from before the trigger fired
 class VoiceDaemon:
     """Wires detectors, STT, the Jarvis server and TTS into one loop.
 
-    ``beep(kind)`` kinds: ``ready`` (listening), ``wake`` (heard you), ``end``
-    (conversation over, back to sleep), ``denied`` (voice not recognised).
+    ``beep(kind)`` kinds: ``ready`` (listening), ``wake`` (heard you), ``got``
+    (finished recording, thinking), ``end`` (conversation over, back to sleep),
+    ``denied`` (voice not recognised). ``emit("state", state=...)`` mirrors the
+    same transitions to the web UI.
     ``verifier(audio) -> (accepted, score)`` checks the speaker once per turn;
     ``on_verified(audio, score)`` lets the voiceprint adapt. ``paused()`` mutes
     the listener (privacy switch / enrolment).
@@ -233,6 +235,7 @@ class VoiceDaemon:
     verifier: Optional[Callable[[np.ndarray], tuple]] = None
     on_verified: Optional[Callable[[np.ndarray, float], None]] = None
     paused: Callable[[], bool] = lambda: False
+    emit: Callable[..., None] = lambda kind, **data: None  # UI events
     follow_up_s: float = 8.0
     startup_s: float = 6.0
     max_turns: Optional[int] = None  # stop after N completed turns (testing)
@@ -247,6 +250,7 @@ class VoiceDaemon:
             + (" o aplaude dos veces." if self.clap else ".")
         )
         self.beep("ready")
+        self.emit("state", state="listening")
         pre: "deque[np.ndarray]" = deque(maxlen=PRE_FRAMES)
         peak, best, n = 0.0, 0.0, 0
         was_paused = False
@@ -256,6 +260,7 @@ class VoiceDaemon:
                 now_paused = bool(self.paused())
                 if now_paused != was_paused:
                     self.log("Escucha en pausa." if now_paused else "Escuchando…")
+                    self.emit("state", state="paused" if now_paused else "listening")
                     if not now_paused:
                         self._reset_detectors()
                     was_paused = now_paused
@@ -280,12 +285,14 @@ class VoiceDaemon:
             if trigger is None:
                 continue
             self.log(f"[{trigger}] te escucho")
+            self.emit("state", state="heard", trigger=trigger)
             self._turn(frames, source, trigger, list(pre))
             pre.clear()
             self._reset_detectors()
             if self.max_turns is not None and self.turns_done >= self.max_turns:
                 return
             self.log("Escuchando…")
+            self.emit("state", state="listening")
 
     def _reset_detectors(self) -> None:
         for det in (self.wake, self.clap):
@@ -301,6 +308,7 @@ class VoiceDaemon:
         accepted, score = self.verifier(audio)
         if not accepted:
             self.log(f"Voz no reconocida (similitud {score:.2f}): ignorado.")
+            self.emit("state", state="denied")
             self.beep("denied")
             return False
         if score is not None:
@@ -321,12 +329,15 @@ class VoiceDaemon:
         startup = self.startup_s
         first = True
         while True:
+            self.emit("state", state="recording" if first else "follow_up")
             wav = record_utterance(frames, floor=self._floor, startup_s=startup)
             if wav is None:
                 break
             if first and not self._check_speaker(wav, trigger, pre or []):
                 return
             first = False
+            self.beep("got")
+            self.emit("state", state="thinking")
             text = strip_wake_phrase(self.transcribe(wav))
             if not text or is_cancel(text):
                 break

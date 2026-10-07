@@ -91,3 +91,25 @@ voiceprint is biometric data; it stays on this machine.
 Scripts live outside the repo (they contain machine paths): a hidden launcher
 `~/.openjarvis/bin/jarvis-background.{vbs,bat}` and a copy of the `.vbs` in the
 user's Startup folder. Create that copy from your own (non-sandboxed) session.
+
+## Web UI sync
+
+The listener reports to the server (`POST /v1/voice/events`); browsers subscribe
+over SSE (`GET /v1/voice/events`, snapshot at `GET /v1/voice/state`). The web app
+shows a status pill (listening / heard you / thinking / speaking / voice not
+recognised / paused) and mirrors every spoken exchange into a chat called
+"🎙 Conversación por voz", tagged with the model that answered.
+
+Each reply gets the real local date and time (the models have no clock); set
+`location = "City, Country"` under `[voice_assistant]` for local weather.
+
+## Reliability notes
+
+- Ollama's CUDA runner sometimes dies loading a cold model
+  (`llama-server process has terminated ... CUDA error`). The Ollama engine now
+  retries up to twice, and the voice assistant falls back to Claude if the local
+  model still fails (needs `ANTHROPIC_API_KEY`).
+- **Do not start Jarvis with `jarvis gui`** (without `--no-server`): it runs
+  `uv run --extra desktop jarvis start`, which re-syncs the virtualenv and
+  removes extras such as `voice-wake`. Start the server with `jarvis serve` and
+  the UI with `jarvis gui --no-server`.

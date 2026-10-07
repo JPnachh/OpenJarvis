@@ -274,11 +274,40 @@ def test_verifier_receives_wake_phrase_audio_for_voice_trigger():
     assert lengths and lengths[0] > SR  # pre-trigger audio + utterance
 
 
-def test_beep_sequence_ready_wake_end():
-    d, *_rest, beeps, _ = (_daemon_with(max_turns=None)[0],) + _daemon_with()[1:]
+def test_beep_sequence_ready_wake_got_end():
     d, said, asked, beeps, logs = _daemon_with()
     d.run(_Source(_wake_audio()))
-    assert beeps[0] == "ready" and "wake" in beeps and beeps[-1] == "end"
+    assert beeps[0] == "ready" and beeps[-1] == "end"
+    assert beeps.index("wake") < beeps.index("got") < beeps.index("end")
+
+
+def test_ui_states_follow_the_conversation():
+    events = []
+    d, *_ = _daemon_with(
+        emit=lambda kind, **data: events.append((kind, data.get("state"))),
+    )
+    d.run(_Source(_wake_audio()))
+    states = [state for kind, state in events if kind == "state"]
+    assert states[0] == "listening"
+    for earlier, later in [
+        ("listening", "heard"),
+        ("heard", "recording"),
+        ("recording", "thinking"),
+        ("thinking", "follow_up"),
+    ]:
+        assert states.index(earlier) < states.index(later)
+    assert states[-1] == "listening"  # back to sleep at the end
+
+
+def test_denied_voice_emits_denied_state():
+    events = []
+    d, *_ = _daemon_with(
+        verifier=lambda audio: (False, 0.2),
+        emit=lambda kind, **data: events.append(data.get("state")),
+        max_turns=1,
+    )
+    d.run(_Source(_wake_audio()))
+    assert "denied" in events and "thinking" not in events
 
 
 def test_paused_listener_ignores_triggers():

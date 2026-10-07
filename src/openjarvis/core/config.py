@@ -1801,6 +1801,7 @@ class VoiceAssistantConfig:
     speaker_threshold: float = 0.0  # 0 = use the value computed at enrolment
     idle_reset_min: float = 10.0  # forget the spoken conversation after this
     chime: bool = True
+    location: str = ""  # e.g. "Santo Domingo, República Dominicana"
 
 
 @dataclass

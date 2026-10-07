@@ -3,8 +3,10 @@ import { Outlet, useNavigate } from 'react-router';
 import { ApprovalBell } from './ApprovalBell';
 import { Sidebar } from './Sidebar/Sidebar';
 import { SystemPulse } from './SystemPulse';
+import { VoiceStatus } from './VoiceStatus';
 import { useAppStore } from '../lib/store';
 import { checkHealth } from '../lib/api';
+import { startVoiceStream } from '../lib/voice';
 
 export function Layout() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
@@ -22,6 +24,9 @@ export function Layout() {
     };
   }, []);
 
+  // Mirror the hands-free voice assistant (state pill + spoken turns in chat).
+  useEffect(() => startVoiceStream(), []);
+
   const navigate = useNavigate();
 
   return (
@@ -29,6 +34,7 @@ export function Layout() {
       <div className="hud-backdrop" aria-hidden="true" />
       <SystemPulse apiReachable={apiReachable} />
       <ApprovalBell />
+      <VoiceStatus />
 
       {/* Health check banner */}
       {apiReachable === false && (
