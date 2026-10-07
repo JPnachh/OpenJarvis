@@ -162,6 +162,32 @@ def options_from_config(config: Any, server_url: Optional[str] = None) -> VoiceO
     )
 
 
+def background_status(log: Callable[[str], None], threshold: float):
+    """Status callback for the background listener: logs what it hears.
+
+    Logs a line when it hears speech-level sound (so a missed "Hey Jarvis" shows
+    its confidence) and a one-minute heartbeat with the loudest level seen, which
+    reveals a silent / wrong microphone.
+    """
+    state = {"last": 0.0, "beat": time.monotonic(), "peak": 0.0, "best": 0.0}
+
+    def status(level: float, wake: float) -> None:
+        now = time.monotonic()
+        state["peak"] = max(state["peak"], level)
+        state["best"] = max(state["best"], wake)
+        if level > 800 and now - state["last"] > 2.0:
+            state["last"] = now
+            log(f"Oí sonido (nivel {int(level)}); «Hey Jarvis» {wake:.2f}/{threshold}")
+        if now - state["beat"] >= 60:
+            log(
+                f"[vivo] último minuto: nivel máx {int(state['peak'])}, "
+                f"«Hey Jarvis» máx {state['best']:.2f}/{threshold}"
+            )
+            state.update(beat=now, peak=0.0, best=0.0)
+
+    return status
+
+
 # ------------------------------------------------------------------ builder
 
 
@@ -318,7 +344,8 @@ def build_daemon(config: Any, opts: VoiceOptions, log: Callable[[str], None]):
         paused=is_paused,
         follow_up_s=opts.follow_up,
         max_turns=opts.max_turns,
-        status=opts.debug_status,
+        status=opts.debug_status
+        or (None if opts.input_wav else background_status(log, opts.wake_threshold)),
     )
     source = (
         WavSource(opts.input_wav)

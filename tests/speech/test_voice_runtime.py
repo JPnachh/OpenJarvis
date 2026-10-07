@@ -88,3 +88,20 @@ def test_server_starts_voice_only_when_autostart(monkeypatch):
     with TestClient(make(True)):
         pass
     assert len(started) == 1
+
+
+def test_background_status_logs_sound_and_heartbeat(monkeypatch):
+    lines = []
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(rt.time, "monotonic", lambda: clock["t"])
+    status = rt.background_status(lines.append, 0.5)
+
+    status(100.0, 0.0)  # quiet: nothing logged
+    assert lines == []
+    status(2500.0, 0.31)  # speech-level sound that missed the wake word
+    assert len(lines) == 1 and "0.31/0.5" in lines[0] and "2500" in lines[0]
+    status(2600.0, 0.2)  # throttled (same 2 s window)
+    assert len(lines) == 1
+    clock["t"] += 61
+    status(50.0, 0.0)
+    assert "[vivo]" in lines[-1] and "2600" in lines[-1]
