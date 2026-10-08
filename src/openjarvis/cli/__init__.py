@@ -135,6 +135,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     from openjarvis.cli.tool_cmd import tool
     from openjarvis.cli.tray_cmd import tray
     from openjarvis.cli.vault_cmd import vault
+    from openjarvis.cli.voice_cmd import voice
     from openjarvis.cli.wake_cmd import wake
     from openjarvis.cli.workflow_cmd import workflow
 
@@ -175,6 +176,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     cli.add_command(shortcut, "shortcut")
     cli.add_command(wake, "wake")
     cli.add_command(tray, "tray")
+    cli.add_command(voice, "voice")
     cli.add_command(setup_desktop, "setup-desktop")
     cli.add_command(tool, "tool")
     cli.add_command(registry, "registry")

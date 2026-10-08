@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Jarvis's voice: Kokoro-82M, local and bilingual**: a new `kokoro-onnx` TTS
+backend, included in the desktop extra, needs no PyTorch and bundles
+espeak-ng. It picks the voice by language (`em_alex` for Spanish,
+`bm_george` for English). Replies are synthesized one sentence at a time,
+which works around kokoro-onnx emptying multi-sentence audio and keeps long
+replies within the model's limits, and the audio is cleaned of
+non-finite samples. It uses the fp16 model: in testing, the int8 file
+produced overflowing samples and ran slower. `jarvis voice
+install|test|status` manages the voice, and `jarvis setup-desktop`
+downloads the model.
+
 **Direct commands, tray icon, self-improving wake word and one-step desktop
 setup**:
 

@@ -102,6 +102,9 @@ desktop = [
     # System tray icon for `jarvis tray`.
     "pystray>=0.19",
     "Pillow>=10",
+    # Jarvis's voice: Kokoro-82M on onnxruntime (already used by Whisper),
+    # with espeak-ng bundled, so Spanish and English need nothing else.
+    "kokoro-onnx>=0.4",
 ]
 # `jarvis tray` alone, without the rest of the desktop stack.
 tray = ["pystray>=0.19", "Pillow>=10"]
