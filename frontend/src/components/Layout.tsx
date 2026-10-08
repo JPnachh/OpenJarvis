@@ -9,6 +9,7 @@ import { useVoiceStore } from '../lib/voice';
 import { useTtsStore } from '../lib/tts';
 import { toast } from 'sonner';
 import { useVoiceEvents } from '../hooks/useVoiceEvents';
+import { OUTDATED_SERVER_MESSAGE } from '../lib/voice-api';
 
 const HEALTHY_POLL_MS = 30000;
 const UNREACHABLE_POLL_MS = 3000;
@@ -17,6 +18,7 @@ export function Layout() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const [apiReachable, setApiReachable] = useState<boolean | null>(null);
   useVoiceEvents();
+  const serverOutdated = useVoiceStore((s) => s.serverOutdated);
 
   // Poll fast while the backend is unreachable -- `jarvis gui` opens the page
   // while the API may still be starting -- and slowly once it answers.
@@ -61,6 +63,21 @@ export function Layout() {
       <div className="hud-backdrop" aria-hidden="true" />
       <SystemPulse apiReachable={apiReachable} />
       <ApprovalBell />
+
+      {serverOutdated && apiReachable !== false && (
+        <div
+          className="flex items-center gap-3 px-4 py-2 text-sm shrink-0"
+          role="alert"
+          style={{
+            background: 'color-mix(in srgb, var(--color-warning) 10%, transparent)',
+            borderBottom: '1px solid color-mix(in srgb, var(--color-warning) 25%, transparent)',
+            color: 'var(--color-text)',
+          }}
+        >
+          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--color-warning)' }} />
+          <span>{OUTDATED_SERVER_MESSAGE}</span>
+        </div>
+      )}
 
       {/* Health check banner */}
       {apiReachable === false && (

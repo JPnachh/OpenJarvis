@@ -45,6 +45,8 @@ interface VoiceStore {
   listener: { state: ListenerState; detail: string | null } | null;
   /** A spoken request from the listener waiting to be sent to the model. */
   pendingCommand: { id: string; text: string } | null;
+  /** The server answered 404 to the voice routes: it predates this page. */
+  serverOutdated: boolean;
   setListener: (state: ListenerState | null, detail?: string | null) => void;
   setPendingCommand: (command: { id: string; text: string } | null) => void;
   /** null until the speech backend health probe has answered. */
@@ -218,6 +220,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => {
     available: null,
     listener: null,
     pendingCommand: null,
+    serverOutdated: false,
 
     setListener: (state, detail = null) =>
       set({ listener: state ? { state, detail: detail ?? null } : null }),
@@ -411,5 +414,6 @@ export function __resetVoiceForTests(): void {
     available: null,
     listener: null,
     pendingCommand: null,
+    serverOutdated: false,
   });
 }

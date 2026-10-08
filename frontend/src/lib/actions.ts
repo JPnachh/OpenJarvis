@@ -1,4 +1,5 @@
 import { apiFetch } from './api';
+import { errorDetail } from './voice-api';
 import { generateId, useAppStore } from './store';
 import type { ChatMessage } from '../types';
 
@@ -63,15 +64,7 @@ export interface CommandsInfo {
   examples: Array<{ group: string; phrases: string[] }>;
 }
 
-async function detail(res: Response, fallback: string): Promise<string> {
-  try {
-    const body = await res.json();
-    if (body?.detail) return String(body.detail);
-  } catch {
-    // ignore
-  }
-  return `${fallback} (${res.status})`;
-}
+const detail = errorDetail;
 
 export async function fetchCommands(): Promise<CommandsInfo> {
   const res = await apiFetch('/v1/actions/commands');

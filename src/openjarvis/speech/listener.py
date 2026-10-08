@@ -448,7 +448,14 @@ class VoiceListener:
                     detail = json.loads(exc.read()).get("detail", "")
                 except (ValueError, OSError):
                     pass
-                self.log(f"  Could not transcribe: {detail or exc}")
+                if exc.code == 404:
+                    self.log(
+                        "  The OpenJarvis server is older than this listener. "
+                        "Open OpenJarvis from the desktop icon (it restarts the "
+                        "server) or restart your computer."
+                    )
+                else:
+                    self.log(f"  Could not transcribe: {detail or exc}")
                 self._error_cue()
                 return
             text = str(result.get("text") or "")

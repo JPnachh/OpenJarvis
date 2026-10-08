@@ -1,5 +1,18 @@
 import { apiFetch, authHeaders, getBase } from './api';
 
+/** Shown when the server predates these pages (it answers 404 to them). */
+export const OUTDATED_SERVER_MESSAGE =
+  'The OpenJarvis server running on this computer is older than this page. ' +
+  'Close OpenJarvis and open it again from the desktop icon (that restarts the ' +
+  'server), or restart your computer.';
+
+export class OutdatedServerError extends Error {
+  constructor() {
+    super(OUTDATED_SERVER_MESSAGE);
+    this.name = 'OutdatedServerError';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hands-free voice: events from the background listener (`jarvis listen`)
 // ---------------------------------------------------------------------------
@@ -30,6 +43,7 @@ export async function streamVoiceEvents(
     headers: authHeaders({ Accept: 'text/event-stream' }),
     signal,
   });
+  if (response.status === 404) throw new OutdatedServerError();
   if (!response.ok || !response.body) {
     throw new Error(`Voice events unavailable: ${response.status}`);
   }
@@ -98,13 +112,15 @@ export interface WakeWordStatus {
   samples: Array<{ id: string; kind: 'positive' | 'negative'; seconds: number }>;
 }
 
-async function errorDetail(res: Response, fallback: string): Promise<string> {
+export async function errorDetail(res: Response, fallback: string): Promise<string> {
   try {
     const body = await res.json();
+    if (res.status === 404 && body?.detail === 'Not Found') return OUTDATED_SERVER_MESSAGE;
     if (body?.detail) return String(body.detail);
   } catch {
     // fall through
   }
+  if (res.status === 404) return OUTDATED_SERVER_MESSAGE;
   return `${fallback} (${res.status})`;
 }
 
