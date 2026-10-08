@@ -99,7 +99,12 @@ desktop = [
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",
+    # System tray icon for `jarvis tray`.
+    "pystray>=0.19",
+    "Pillow>=10",
 ]
+# `jarvis tray` alone, without the rest of the desktop stack.
+tray = ["pystray>=0.19", "Pillow>=10"]
 # Local neural TTS. Kokoro pulls spacy/misaki for G2P; espeak-ng must also be
 # present on PATH (brew install espeak-ng) for out-of-dictionary words.
 voice = [

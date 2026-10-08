@@ -10,6 +10,71 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Direct commands, tray icon, self-improving wake word and one-step desktop
+setup**:
+
+- **Direct commands.** `openjarvis.actions` understands short Spanish and
+  English commands and runs them on the computer without the model, with a
+  spoken reply: volume, media keys, Spotify search and play (Web API with
+  token refresh and device wake-up, falling back to media keys or an
+  in-app search), opening apps and sites, time and date, and reading and
+  adding Google Calendar events (including "mañana a las 5", "el viernes",
+  "en 30 minutos").
+- **Commands page.** A new **Commands** page lists the built-in commands,
+  has a try box, and lets you teach your own (`~/.openjarvis/commands.json`).
+  Shell actions need an explicit opt-in.
+- **Agent tools.** The same abilities are agent tools: `media_control`,
+  `system_volume`, `open_app`, `spotify_play`, `calendar_events` and
+  `calendar_add_event`.
+- **Spotify scopes.** The Spotify connector now requests the playback scopes.
+  Reconnect with `jarvis connect spotify`.
+- **Tray icon.** `jarvis tray` puts OpenJarvis in the system tray. The tray
+  runs the listener, its status dot shows grey, cyan, red, amber or green,
+  and its menu covers open, listen, train, commands and start-at-login.
+- **Learning wake word.** Confirmed "Hey Jarvis" hits become training
+  samples. Up to six learned takes are kept, the profile is retrained every
+  two, and `--no-learn` turns this off.
+- **One-step setup.** `jarvis setup-desktop` adds the shortcut, prepares the
+  frontend and sets up tray autostart. `scripts/windows/setup-jarvis.ps1`
+  installs or updates from a chosen repository and branch with one pasted
+  line.
+
+**"Hey Jarvis" wake word trained on your voice, and hands-free
+conversation**:
+
+- **Training.** A new **Hey Jarvis** page (also reachable from the sidebar and
+  Settings) records a few takes of the phrase plus a few other sentences, then
+  builds a personal profile under `~/.openjarvis/wakeword/`. The profile works
+  in any language or accent and needs no model download. `jarvis wake
+  train|status|retrain|folder|reset` covers the same steps from the terminal.
+- **Listening.** `jarvis listen` (`jarvis clap` is now an alias) listens for
+  the wake word and for claps. On a trigger it opens OpenJarvis if needed,
+  records the request until you pause, and sends it to the open chat through
+  the new `/v1/voice` endpoints. It then reads the answer aloud and ignores
+  the microphone while Jarvis talks.
+- **Live status.** The page shows the listener's state live.
+- **Desktop shortcut.** On Windows the shortcut is also added to the Start
+  menu. Double-clicking it while OpenJarvis is open brings up the page
+  instead of failing on the busy port, and on failure the window stays open
+  so the error can be read.
+
+**Open OpenJarvis from the desktop or by clapping**: `jarvis shortcut`
+creates a desktop icon that launches the graphical mode on Windows, macOS and
+Linux. `jarvis clap` listens to the microphone and opens OpenJarvis on a
+double clap, or focuses it in the browser when it is already running. The
+detector rejects single bumps, speech, music beats and three-clap runs.
+`jarvis clap --autostart` starts the listener at login without admin rights,
+and `--test` shows live levels for calibration. Audio is analysed locally and
+never stored.
+
+**Live voice status in the web UI**: the chat now shows when Jarvis is
+listening and when it stops. An animated Jarvis orb reflects the current state
+(listening, transcribing, thinking, speaking), and a status bar shows a live mic
+level meter, the elapsed time, and why listening ended. By default, listening
+stops after a pause, and a short tone plays when the mic opens and closes. Esc
+cancels. Optional auto-send gives a hands-free conversation. Each behavior has
+its own toggle under Settings → Speech.
+
 **Apple Foundation Models (AFM 3)** — a new in-process `afm` engine drives
 Apple's `apple-fm-sdk` directly, with no HTTP hop and no second process whose
 CPU draw would land inside the same energy measurement window. Install with
@@ -66,6 +131,17 @@ stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
 (default `16384`).
 
 ### Fixed
+
+**`jarvis gui` launch failures**: a second `jarvis gui` no longer aborts with
+"Could not start the OpenJarvis API server" while the first server is still
+running; it reuses that server, including one started on another port. The
+launcher now waits for `/health`. If the server dies during startup, it prints
+the end of the server log and a hint (for example, to start Ollama). If the
+inference engine is down, it says so. When the local npm is older than the
+version the frontend requires, the frontend install uses the required npm
+instead of failing with EBADENGINE. In the web UI, the "cannot reach backend"
+banner now retries every few seconds instead of every 30, and speech
+availability is checked again once the server is up.
 
 **Apple Silicon energy was never measured, only modelled.**
 `telemetry/energy_apple.py` imported `AppleSiliconMonitor` from

@@ -754,3 +754,65 @@
   background: var(--color-accent);
   text-decoration: none;
 }
+/* Jarvis orb — the assistant's visual presence (components/Jarvis). Each
+   state has its own motion so it reads at a glance, even peripherally. */
+.jarvis-orb {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: color 250ms ease;
+}
+.jarvis-orb svg { overflow: visible; }
+.jarvis-orb__ring,
+.jarvis-orb__halo {
+  transform-origin: 50px 50px;
+  transform-box: view-box;
+}
+.jarvis-orb__ring--outer { animation: jarvis-spin 14s linear infinite; }
+.jarvis-orb__ring--inner { animation: jarvis-spin 22s linear infinite reverse; }
+.jarvis-orb__halo { animation: jarvis-breathe 4s ease-in-out infinite; }
+
+.jarvis-orb--listening .jarvis-orb__halo { animation: jarvis-ping 1.2s ease-out infinite; opacity: 0.25; }
+.jarvis-orb--listening .jarvis-orb__ring--outer { animation-duration: 5s; }
+.jarvis-orb--transcribing .jarvis-orb__ring--outer { animation-duration: 1.2s; }
+.jarvis-orb--thinking .jarvis-orb__ring--outer { animation-duration: 2.4s; }
+.jarvis-orb--thinking .jarvis-orb__ring--inner { animation-duration: 3.2s; }
+.jarvis-orb--speaking .jarvis-orb__halo { animation: jarvis-speak 0.7s ease-in-out infinite; opacity: 0.22; }
+
+@keyframes jarvis-spin { to { transform: rotate(360deg); } }
+@keyframes jarvis-breathe {
+  0%, 100% { transform: scale(0.94); }
+  50% { transform: scale(1.04); }
+}
+@keyframes jarvis-ping {
+  0% { transform: scale(0.8); opacity: 0.35; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+@keyframes jarvis-speak {
+  0%, 100% { transform: scale(0.92); }
+  50% { transform: scale(1.12); }
+}
+/* The mic button animates with `pulse`; Tailwind only emits that keyframe
+   when its animate-pulse utility is used somewhere, so define it here. */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.voice-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+.voice-meter span {
+  width: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: height 70ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-orb__ring,
+  .jarvis-orb__halo { animation: none !important; }
+}

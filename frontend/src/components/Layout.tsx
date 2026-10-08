@@ -5,19 +5,51 @@ import { Sidebar } from './Sidebar/Sidebar';
 import { SystemPulse } from './SystemPulse';
 import { useAppStore } from '../lib/store';
 import { checkHealth } from '../lib/api';
+import { useVoiceStore } from '../lib/voice';
+import { useTtsStore } from '../lib/tts';
+import { toast } from 'sonner';
+import { useVoiceEvents } from '../hooks/useVoiceEvents';
+
+const HEALTHY_POLL_MS = 30000;
+const UNREACHABLE_POLL_MS = 3000;
 
 export function Layout() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const [apiReachable, setApiReachable] = useState<boolean | null>(null);
+  useVoiceEvents();
 
+  // Poll fast while the backend is unreachable -- `jarvis gui` opens the page
+  // while the API may still be starting -- and slowly once it answers.
   useEffect(() => {
-    const check = () => checkHealth().then(setApiReachable);
-    check();
-    const interval = setInterval(check, 30000);
-    const onFocus = () => check();
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let previous: boolean | null = null;
+    let inFlight = false;
+    const check = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      if (timer) clearTimeout(timer);
+      const reachable = await checkHealth();
+      inFlight = false;
+      if (cancelled) return;
+      setApiReachable(reachable);
+      if (reachable && previous === false) {
+        toast.success('Connected to OpenJarvis');
+      }
+      if (reachable && previous !== true) {
+        // Voice backends may have been probed before the server was ready.
+        void useVoiceStore.getState().ensureHealth(true);
+        void useTtsStore.getState().ensureHealth();
+      }
+      previous = reachable;
+      timer = setTimeout(check, reachable ? HEALTHY_POLL_MS : UNREACHABLE_POLL_MS);
+    };
+    void check();
+    const onFocus = () => void check();
     window.addEventListener('focus', onFocus);
     return () => {
-      clearInterval(interval);
+      cancelled = true;
+      if (timer) clearTimeout(timer);
       window.removeEventListener('focus', onFocus);
     };
   }, []);
@@ -44,7 +76,7 @@ export function Layout() {
             className="w-1.5 h-1.5 rounded-full shrink-0"
             style={{ background: 'var(--color-error)' }}
           />
-          <span>Cannot reach OpenJarvis backend</span>
+          <span>Cannot reach OpenJarvis backend — retrying every few seconds…</span>
           <button
             onClick={() => navigate('/settings')}
             className="text-sm underline cursor-pointer ml-auto shrink-0"

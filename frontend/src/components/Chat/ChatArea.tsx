@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router';
 import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
 import { StreamingDots } from './StreamingDots';
+import { JarvisOrb } from '../Jarvis/JarvisOrb';
 import { useAppStore } from '../../lib/store';
 import { shouldAutoplayFinishedReply, useTtsStore } from '../../lib/tts';
 import { stripThinkTags } from '../../lib/message-text';
-import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X } from 'lucide-react';
+import { PanelRightOpen, PanelRightClose, Database, MessageSquare, X } from 'lucide-react';
 import { listConnectors } from '../../lib/connectors-api';
 
 function getGreeting(): string {
@@ -65,6 +66,8 @@ export function ChatArea() {
     if (!voiceOutputEnabled || !voiceAutoplay) return;
 
     if (!last || last.role !== 'assistant' || activeId === null) return;
+    // The background listener speaks replies to requests it heard itself.
+    if (messages[messages.length - 2]?.voiceCommandId) return;
 
     // Model loading may still be in flight when a fast reply completes. Wait
     // for the probe, then confirm that this is still the active finished reply.
@@ -182,12 +185,7 @@ export function ChatArea() {
       >
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center h-full px-4">
-            <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
-              style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)' }}
-            >
-              <Sparkles size={24} />
-            </div>
+            <JarvisOrb size={72} className="mb-4" />
             <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
               {getGreeting()}
             </h2>

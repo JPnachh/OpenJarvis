@@ -108,6 +108,12 @@ interface Settings {
   speechEnabled: boolean;
   voiceOutputEnabled: boolean;
   voiceAutoplay: boolean;
+  /** Stop listening on its own once the speaker pauses. */
+  voiceAutoStop: boolean;
+  /** Short tones when the microphone opens and closes. */
+  voiceEarcons: boolean;
+  /** Send a dictated message as soon as it is transcribed. */
+  voiceAutoSend: boolean;
 }
 
 function loadSettings(): Settings {
@@ -123,6 +129,9 @@ function loadSettings(): Settings {
     speechEnabled: false,
     voiceOutputEnabled: false,
     voiceAutoplay: false,
+    voiceAutoStop: true,
+    voiceEarcons: true,
+    voiceAutoSend: false,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);

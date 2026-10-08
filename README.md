@@ -61,9 +61,40 @@ jarvis init --preset <name> --force  # replace config with a starter preset
 ```
 
 `jarvis gui` starts the local API server and frontend, then opens the graphical
-chat interface in your default browser. It requires Node.js 22+ and is
-available from a source checkout; packaged desktop installers are available
-from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases).
+chat interface in your default browser. Running it again reuses a server that
+is already up, and if the server cannot start it prints the reason from the
+server log. It requires Node.js 22+ and is available from a source checkout;
+packaged desktop installers are available from the
+[latest release](https://github.com/open-jarvis/OpenJarvis/releases).
+
+**Hands-free desktop assistant.** On Windows, paste this line into
+PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/JPnachh/OpenJarvis/main/scripts/windows/setup-jarvis.ps1 | iex
+```
+
+On macOS or Linux, run `uv sync --extra desktop && uv run jarvis setup-desktop`.
+
+Either way you get:
+
+- a desktop icon;
+- a tray icon next to the clock;
+- "Hey Jarvis" and clap detection at every login.
+
+Then train "Hey Jarvis" on your voice: in the app, open **Hey Jarvis** in
+the sidebar. Direct commands run instantly without the model, for example
+"sube el volumen", "pon Bad Bunny en Spotify", "abre YouTube" or "agenda
+dentista mañana a las 5". Teach Jarvis your own commands under
+**Commands**. See the
+[hands-free voice guide](docs/user-guide/hands-free-voice.md).
+
+For voice, turn on **Settings → Speech**. While the microphone is open, a
+"Listening" bar with a live level meter and timer sits above the input, and
+the browser tab title shows `● Listening`. By default, listening stops on its
+own when you pause, and a short tone plays when it starts and stops. Turn on
+"Send dictation automatically" and "Speak replies automatically" for a
+hands-free conversation.
 
 > Prefix `jarvis ...` with `uv run`, or `source .venv/bin/activate` first.
 
