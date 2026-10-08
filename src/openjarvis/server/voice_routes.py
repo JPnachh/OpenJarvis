@@ -177,9 +177,14 @@ async def voice_command(request: Request):
         text = str(body.get("text") or "").strip()
         source = str(body.get("source") or source)
     else:
-        backend = getattr(request.app.state, "speech_backend", None)
+        from openjarvis.server.api_routes import _speech_backend
+
+        backend = await _speech_backend(request)
         if backend is None:
-            raise HTTPException(status_code=501, detail="Speech backend not configured")
+            reason = getattr(request.app.state, "speech_unavailable_reason", None)
+            raise HTTPException(
+                status_code=501, detail=reason or "Speech backend not configured"
+            )
         form = await request.form()
         audio = form.get("file")
         if audio is None:

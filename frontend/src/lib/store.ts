@@ -126,12 +126,16 @@ function loadSettings(): Settings {
     defaultAgent: '',
     temperature: 0.7,
     maxTokens: 4096,
-    speechEnabled: false,
-    voiceOutputEnabled: false,
+    // Voice on by default: with the browser's own voices as a fallback there
+    // is always a way to speak, and the mic stays inert until a speech-to-text
+    // backend answers its health probe.
+    speechEnabled: true,
+    voiceOutputEnabled: true,
     voiceAutoplay: false,
     voiceAutoStop: true,
     voiceEarcons: true,
-    voiceAutoSend: false,
+    // Talking to Jarvis means wanting an answer, not a filled-in text box.
+    voiceAutoSend: true,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);

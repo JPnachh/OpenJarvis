@@ -15,14 +15,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Priority order: local first, then cloud.
-TTS_BACKEND_ORDER = ("kokoro", "openai_tts", "cartesia")
+# Priority order: local first, then cloud. kokoro-onnx (same Kokoro-82M
+# model, no PyTorch, espeak-ng bundled) ships with the desktop extra.
+TTS_BACKEND_ORDER = ("kokoro", "kokoro-onnx", "openai_tts", "cartesia")
 
 # Voice IDs are backend-specific and NOT portable. ``speech.voice_id`` applies
 # only to ``speech.tts_backend``; if synthesis falls back to another backend we
 # use that backend's own default rather than passing an unrecognized ID through.
 BACKEND_DEFAULT_VOICE = {
     "kokoro": "bm_george",  # British male
+    # Empty: kokoro-onnx picks a voice matching the text's language.
+    "kokoro-onnx": "",
     "openai_tts": "onyx",  # deepest OpenAI preset
     "cartesia": "",  # no safe static default; let Cartesia choose
 }

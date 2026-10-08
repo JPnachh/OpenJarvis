@@ -260,6 +260,8 @@ class VoiceListener:
         profile_loader: Optional[Callable[[], object]] = None,
         profile_path: Optional[Path] = None,
         learner: Optional[Callable[[np.ndarray], bool]] = None,
+        system_say: Optional[Callable[[str], bool]] = None,
+        on_error: Callable[[str], None] = lambda message: None,
     ) -> None:
         self.api = api
         self.options = options
@@ -272,6 +274,12 @@ class VoiceListener:
         self.profile_path = profile_path
         #: Stores a confirmed wake-word hit for training; True if retrained.
         self.learner = learner
+        if system_say is None:
+            from openjarvis.speech.system_tts import say as system_say
+        #: Fallback voice when the server has no TTS backend.
+        self.system_say = system_say
+        #: Called with a user-facing message when a request fails.
+        self.on_error = on_error
         self._profile_mtime = self._mtime()
         self._recorder: Optional[CommandRecorder] = None
         self._busy = threading.Event()  # transcribing / waiting / speaking
@@ -437,8 +445,7 @@ class VoiceListener:
     def _converse(self, wav: bytes, wake_audio=None) -> None:
         try:
             if not self._wait_for_api():
-                self.log("  OpenJarvis API is not reachable; request dropped.")
-                self._error_cue()
+                self._fail("OpenJarvis is not running, so the request was dropped.")
                 return
             try:
                 result = self.api.post_wav("/v1/voice/command", wav)
@@ -449,19 +456,17 @@ class VoiceListener:
                 except (ValueError, OSError):
                     pass
                 if exc.code == 404:
-                    self.log(
-                        "  The OpenJarvis server is older than this listener. "
+                    self._fail(
+                        "The OpenJarvis server is older than this listener. "
                         "Open OpenJarvis from the desktop icon (it restarts the "
                         "server) or restart your computer."
                     )
                 else:
-                    self.log(f"  Could not transcribe: {detail or exc}")
-                self._error_cue()
+                    self._fail(f"Could not understand the request: {detail or exc}")
                 return
             text = str(result.get("text") or "")
             if not text:
-                self.log("  ...couldn't make out the words.")
-                self._error_cue()
+                self._fail("Couldn't make out the words. Try again a bit closer.")
                 return
             self.log(f"  You: {text}")
             # A real request followed: the wake word was meant. Learn from it.
@@ -501,18 +506,28 @@ class VoiceListener:
             self._busy.clear()
 
     def _speak(self, text: str) -> None:
+        samples = rate = None
         try:
-            audio = self.api.synthesize(text[:4000])
-        except (OSError, ValueError):
-            self.log("  (voice output is not configured; reply shown in the page)")
-            return
-        try:
-            samples, rate = read_wav(audio)
-        except (ValueError, EOFError):
-            return
+            samples, rate = read_wav(self.api.synthesize(text[:4000]))
+        except (OSError, ValueError, EOFError):
+            pass  # no TTS backend on the server: use the computer's own voice
         self._busy.set()
         self.set_state("speaking")
-        self.speaker.play(samples, rate, wait=True)
+        if samples is not None:
+            self.speaker.play(samples, rate, wait=True)
+        elif not self.system_say(text):
+            self.log("  (no voice available to speak; the reply is in the page)")
+
+    def _fail(self, message: str) -> None:
+        """Tell the user, wherever they are looking, that a request failed."""
+        self.log(f"  {message}")
+        self._error_cue()
+        # The page shows "error: ..." details as a notice; the tray notifies.
+        self.set_state("idle", f"error: {message}")
+        try:
+            self.on_error(message)
+        except Exception:  # noqa: BLE001 - reporting must never raise
+            pass
 
     def _error_cue(self) -> None:
         if self.options.sounds:

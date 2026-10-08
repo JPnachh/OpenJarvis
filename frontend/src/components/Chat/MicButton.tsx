@@ -6,16 +6,20 @@ interface MicButtonProps {
   onClick: () => void;
   disabled?: boolean;
   reason?: 'not-enabled' | 'no-backend' | 'streaming';
+  /** The server's explanation when speech input is unavailable. */
+  detail?: string | null;
 }
 
-export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) {
+export function MicButton({ state, onClick, disabled, reason, detail }: MicButtonProps) {
   const [showTooltip, setShowTooltip] = useState(false);
 
   const tooltipText =
     reason === 'not-enabled'
       ? 'Enable in Settings'
       : reason === 'no-backend'
-        ? 'Speech backend not configured'
+        ? detail && detail !== 'No speech backend configured'
+          ? `Voice input unavailable: ${detail}`
+          : 'Speech backend not configured'
         : reason === 'streaming'
           ? 'Wait for response'
           : state === 'recording'
@@ -72,7 +76,7 @@ export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) 
       </button>
       {showTooltip && (
         <div
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap pointer-events-none"
+          className="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 rounded-lg text-xs pointer-events-none max-w-xs w-max"
           style={{
             background: 'var(--color-text)',
             color: 'var(--color-bg)',

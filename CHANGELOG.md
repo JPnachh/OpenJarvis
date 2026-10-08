@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Jarvis's voice: Kokoro-82M, local and bilingual**: a new `kokoro-onnx` TTS
+backend, included in the desktop extra, needs no PyTorch and bundles
+espeak-ng. It picks the voice by language (`em_alex` for Spanish,
+`bm_george` for English). Replies are synthesized one sentence at a time,
+which works around kokoro-onnx emptying multi-sentence audio and keeps long
+replies within the model's limits, and the audio is cleaned of
+non-finite samples. It uses the fp16 model: in testing, the int8 file
+produced overflowing samples and ran slower. `jarvis voice
+install|test|status` manages the voice, and `jarvis setup-desktop`
+downloads the model.
+
 **Direct commands, tray icon, self-improving wake word and one-step desktop
 setup**:
 
@@ -131,6 +142,26 @@ stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
 (default `16384`).
 
 ### Fixed
+
+**Voice answers out of the box**:
+
+- **Voice output.** Without a TTS backend (Kokoro, OpenAI or Cartesia),
+  replies were silent, and the read-aloud button and autoplay were hidden.
+  The page now falls back to the computer's built-in voices (browser speech
+  synthesis, with a Spanish voice for Spanish text and markdown stripped),
+  and the hands-free listener falls back to the system voice (Windows SAPI,
+  macOS `say`, Linux espeak-ng/spd-say). Settings shows the voice in use
+  and has a **Test voice** button.
+- **Spoken messages.** Messages spoken into the mic are sent automatically
+  and their replies are read aloud. Voice input and read-aloud are on by
+  default.
+- **Speech-to-text discovery.** The server no longer stays without
+  speech-to-text when startup could not load Whisper (no network yet,
+  model still downloading). Requests retry discovery every 30 s, and the
+  reason (for example, a failed model download) appears in Settings and
+  in the mic tooltip.
+- **Listener errors.** Failures in the hands-free listener are reported as
+  a page notice and a tray notification instead of staying silent.
 
 **`jarvis gui` launch failures**: a second `jarvis gui` no longer aborts with
 "Could not start the OpenJarvis API server" while the first server is still

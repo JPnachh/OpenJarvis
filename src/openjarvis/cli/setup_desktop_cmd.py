@@ -62,7 +62,12 @@ def setup_desktop(no_autostart: bool, no_frontend: bool) -> None:
             except click.ClickException as exc:
                 console.print(f"{warn} {exc.message}")
 
-    # 3. An OpenJarvis server started before this update keeps serving the old
+    # 3. Jarvis's voice (Kokoro-82M), so replies are spoken without setup.
+    from openjarvis.cli.voice_cmd import install_voice
+
+    install_voice(console)
+
+    # 4. An OpenJarvis server started before this update keeps serving the old
     # code (the Windows installer starts one at every logon), and the new
     # pages then fail with "Not Found". Restart it now.
     from openjarvis.cli import gui_cmd
@@ -76,7 +81,7 @@ def setup_desktop(no_autostart: bool, no_frontend: bool) -> None:
     except click.ClickException as exc:
         console.print(f"{warn} {exc.message}")
 
-    # 4. Tray icon (or bare listener) at login.
+    # 5. Tray icon (or bare listener) at login.
     has_audio = _can_import("sounddevice")
     has_tray = _can_import("pystray") and _can_import("PIL")
     if no_autostart:

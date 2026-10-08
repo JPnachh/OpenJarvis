@@ -157,6 +157,7 @@ class TrayApp:
             profile_loader=lambda: _wake_detector(self.wake_sensitivity),
             profile_path=wakeword.wakeword_dir() / "profile.json",
             learner=wakeword.learn_from_hit,
+            on_error=self.notify,
         )
         post_state = listener.set_state
 

@@ -229,6 +229,48 @@ profile is rebuilt every two such takes. Only the six most recent learned
 takes are kept, so the recordings you made on purpose always carry most of
 the weight. To turn this off, use `jarvis listen --no-learn`.
 
+## Jarvis's voice (Kokoro-82M)
+
+Jarvis speaks with **Kokoro-82M**, an open model that runs locally through
+`kokoro-onnx`. It needs no PyTorch, and the espeak-ng phonemizer is bundled,
+so Spanish works on Windows with nothing else to install. The voice follows
+the language of the reply:
+
+- **Spanish:** `em_alex`.
+- **English:** `bm_george`, a British butler voice.
+
+`jarvis setup-desktop` downloads the model once, about 200 MB, into
+`~/.openjarvis/models/kokoro`. You can also download it on its own:
+
+```bash
+uv run jarvis voice install                         # download the model
+uv run jarvis voice test "Hola, soy Jarvis"         # hear it
+uv run jarvis voice status
+```
+
+It uses the fp16 model, which runs about 4x faster than real time on a
+laptop CPU. The smaller int8 file produced noisy audio in testing, so it is
+not used.
+
+## Troubleshooting: "it hears me but does not answer"
+
+- **No voice, no 🔊 button.** Jarvis speaks through a TTS backend if one is
+  installed: Kokoro (`jarvis voice install`), an OpenAI key, or a Cartesia
+  key. Otherwise it uses your computer's built-in voice: the
+  browser's voices in the page, and the system voice for the listener.
+  **Settings → Speech → Voice** shows which one is in use and has a
+  **Test voice** button.
+- **The mic records but nothing happens.** Speech-to-text needs the local
+  Whisper model. It downloads on first use (about 150 MB), so it needs
+  internet once. **Settings → Speech → Backend status** and the mic button's
+  tooltip show the exact reason. The server retries by itself, every 30
+  seconds, if the model wasn't ready when it started.
+- **"Not Found" everywhere.** An older server is still running. Open
+  OpenJarvis from the desktop icon, which restarts it, or restart the
+  computer.
+- **Errors in hands-free mode.** Errors from "Hey Jarvis" or clap requests
+  now appear as a notice in the page and as a tray notification.
+
 ## Tips for reliable detection
 
 - Train in the room and at the distance where you will use it.

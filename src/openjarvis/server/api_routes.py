@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -990,12 +991,94 @@ async def learning_policy(request: Request):
 speech_router = APIRouter(prefix="/v1/speech", tags=["speech"])
 
 
+# How long to wait before retrying speech-to-text discovery after a failure.
+_SPEECH_RETRY_SECONDS = 30.0
+
+
+def _speech_failure_reason(config) -> str:
+    """Why no speech-to-text backend could be set up, in actionable words."""
+    try:
+        from openjarvis.speech.faster_whisper import WhisperModel
+    except Exception:  # noqa: BLE001
+        WhisperModel = None
+    if WhisperModel is None:
+        return (
+            "faster-whisper is not installed. Install it with: uv sync --extra desktop"
+        )
+    try:
+        from openjarvis.speech.faster_whisper import FasterWhisperBackend
+
+        probe = FasterWhisperBackend(
+            model_size=config.speech.model,
+            device=config.speech.device,
+            compute_type=config.speech.compute_type,
+        )
+        if not probe.health():
+            return (
+                f"The Whisper speech model could not be loaded "
+                f"({probe._last_error}). The first use downloads it (about "
+                "150 MB) and needs internet."
+            )
+    except Exception as exc:  # noqa: BLE001
+        return f"The Whisper speech model could not be loaded ({exc})."
+    return "No speech backend configured"
+
+
+async def _speech_backend(request: Request):
+    """The speech-to-text backend, discovered again if startup missed it.
+
+    The server looks for one once at startup. A server started at logon
+    (the Windows scheduled task) can do that before the network is up or
+    while Whisper's model is still downloading, and used to stay without
+    speech input until restarted. Now a later request retries, at most every
+    few seconds, and keeps the backend once found.
+    """
+    app = request.app
+    backend = getattr(app.state, "speech_backend", None)
+    if backend is not None:
+        return backend
+    lock = getattr(app.state, "speech_discovery_lock", None)
+    if lock is None:
+        lock = app.state.speech_discovery_lock = asyncio.Lock()
+    async with lock:
+        backend = getattr(app.state, "speech_backend", None)
+        if backend is not None:
+            return backend
+        last = getattr(app.state, "speech_discovery_at", 0.0)
+        if time.monotonic() - last < _SPEECH_RETRY_SECONDS:
+            return None
+        app.state.speech_discovery_at = time.monotonic()
+
+        def discover():
+            from openjarvis.speech._discovery import get_speech_backend
+
+            config = getattr(app.state, "config", None)
+            if config is None:
+                from openjarvis.core.config import load_config
+
+                config = load_config()
+            found = get_speech_backend(config)
+            reason = None if found is not None else _speech_failure_reason(config)
+            return found, reason
+
+        try:
+            backend, reason = await asyncio.to_thread(discover)
+        except Exception as exc:  # noqa: BLE001
+            backend, reason = None, str(exc)
+        app.state.speech_backend = backend
+        app.state.speech_unavailable_reason = reason
+        return backend
+
+
 @speech_router.post("/transcribe")
 async def transcribe_speech(request: Request):
     """Transcribe uploaded audio to text."""
-    backend = getattr(request.app.state, "speech_backend", None)
+    backend = await _speech_backend(request)
     if backend is None:
-        raise HTTPException(status_code=501, detail="Speech backend not configured")
+        reason = getattr(request.app.state, "speech_unavailable_reason", None)
+        raise HTTPException(
+            status_code=501, detail=reason or "Speech backend not configured"
+        )
 
     form = await request.form()
     audio_file = form.get("file")
@@ -1034,9 +1117,10 @@ async def transcribe_speech(request: Request):
 @speech_router.get("/health")
 async def speech_health(request: Request):
     """Check if a speech backend is available."""
-    backend = getattr(request.app.state, "speech_backend", None)
+    backend = await _speech_backend(request)
     if backend is None:
-        return {"available": False, "reason": "No speech backend configured"}
+        reason = getattr(request.app.state, "speech_unavailable_reason", None)
+        return {"available": False, "reason": reason or "No speech backend configured"}
     try:
         available = backend.health()
         reason = None

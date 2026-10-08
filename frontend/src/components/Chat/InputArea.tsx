@@ -22,6 +22,8 @@ interface SendOptions {
   /** Called with the final reply text once streaming ends. */
   onComplete?: (reply: string) => void;
   voiceCommandId?: string;
+  /** Spoken into the mic: the reply is read aloud. */
+  spoken?: boolean;
 }
 import { useSpeech } from '../../hooks/useSpeech';
 import type {
@@ -103,6 +105,7 @@ export function InputArea() {
   const messages = useAppStore((s) => s.messages);
   const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
   const voiceAutoSend = useAppStore((s) => s.settings.voiceAutoSend);
+  const speechUnavailableReason = useVoiceStore((s) => s.unavailableReason);
   const maxTokens = useAppStore((s) => s.settings.maxTokens);
   const temperature = useAppStore((s) => s.settings.temperature);
   const createConversation = useAppStore((s) => s.createConversation);
@@ -146,7 +149,7 @@ export function InputArea() {
     // words in the box rather than dropping them.
     if (voiceAutoSendRef.current && app.selectedModel && !app.streamState.isStreaming) {
       const current = textareaRef.current?.value.trim() ?? '';
-      void sendMessageRef.current(current ? `${current} ${text}` : text);
+      void sendMessageRef.current(current ? `${current} ${text}` : text, { spoken: true });
       return;
     }
     setInput((prev) => (prev ? prev + ' ' + text : text));
@@ -238,6 +241,7 @@ export function InputArea() {
       content,
       timestamp: Date.now(),
       ...(options.voiceCommandId ? { voiceCommandId: options.voiceCommandId } : {}),
+      ...(options.spoken ? { spokenInput: true } : {}),
     };
     addMessage(convId, userMsg);
 
@@ -696,6 +700,7 @@ export function InputArea() {
               onClick={handleMicClick}
               disabled={micDisabled}
               reason={micReason}
+              detail={speechUnavailableReason}
             />
             <button
               onClick={() => sendMessage()}

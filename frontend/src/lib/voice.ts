@@ -51,6 +51,8 @@ interface VoiceStore {
   setPendingCommand: (command: { id: string; text: string } | null) => void;
   /** null until the speech backend health probe has answered. */
   available: boolean | null;
+  /** Why speech input is unavailable, as the server explains it. */
+  unavailableReason: string | null;
   ensureHealth: (force?: boolean) => Promise<void>;
   start: (options: StartOptions) => Promise<void>;
   stop: (reason?: StopReason) => void;
@@ -218,6 +220,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => {
     error: null,
     lastStop: null,
     available: null,
+    unavailableReason: null,
     listener: null,
     pendingCommand: null,
     serverOutdated: false,
@@ -230,7 +233,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => {
       if (healthProbe && !force) return healthProbe;
       healthProbe = fetchSpeechHealth()
         .then((health) => {
-          set({ available: health.available });
+          set({
+            available: health.available,
+            unavailableReason: health.available ? null : health.reason ?? null,
+          });
           // Retry later when unavailable: the API may still be starting.
           if (!health.available) healthProbe = null;
         })
@@ -412,6 +418,7 @@ export function __resetVoiceForTests(): void {
     error: null,
     lastStop: null,
     available: null,
+    unavailableReason: null,
     listener: null,
     pendingCommand: null,
     serverOutdated: false,
