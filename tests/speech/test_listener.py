@@ -232,3 +232,76 @@ def test_confirmed_wake_word_is_learned_and_actions_spoken_at_once(rng, tmp_path
     assert _wait(lambda: api.synthesized == ["Subí el volumen."])
     assert len(learned) == 1 and learned[0] is not None
     listener.close()
+
+
+def test_reply_uses_the_computer_voice_without_a_tts_backend(rng):
+    class NoTtsApi(FakeApi):
+        def synthesize(self, text, timeout=120.0):
+            raise OSError("501 No text-to-speech backend available")
+
+    api, speaker = NoTtsApi(), FakeSpeaker()
+    said = []
+    listener, _ = _listener(
+        api,
+        speaker,
+        clap_detector=ClapDetector(),
+        system_say=lambda text: said.append(text) or True,
+    )
+    listener._ui_open = True
+    listener._last_poll = time.monotonic() + 3600
+    audio = np.concatenate(
+        [
+            room(1.0, rng),
+            _clap(rng),
+            room(0.3, rng),
+            _clap(rng),
+            room(1.2, rng),
+            take(OTHER, rng),
+            room(2.0, rng),
+        ]
+    )
+    _feed(listener, audio)
+    assert _wait(lambda: said == ["It is noon."])
+    assert _wait(lambda: "speaking" in api.states)
+    listener.close()
+
+
+def test_failed_transcription_is_reported_not_silent(rng):
+    import io
+    import urllib.error
+
+    class FailingApi(FakeApi):
+        def post_wav(self, path, wav, timeout=120.0):
+            raise urllib.error.HTTPError(
+                path,
+                501,
+                "x",
+                {},
+                io.BytesIO(
+                    b'{"detail": "The Whisper speech model could not be loaded"}'
+                ),
+            )
+
+    api, speaker = FailingApi(), FakeSpeaker()
+    errors = []
+    listener, _ = _listener(
+        api, speaker, clap_detector=ClapDetector(), on_error=errors.append
+    )
+    listener._ui_open = True
+    listener._last_poll = time.monotonic() + 3600
+    audio = np.concatenate(
+        [
+            room(1.0, rng),
+            _clap(rng),
+            room(0.3, rng),
+            _clap(rng),
+            room(1.2, rng),
+            take(OTHER, rng),
+            room(2.0, rng),
+        ]
+    )
+    _feed(listener, audio)
+    assert _wait(lambda: errors)
+    assert "Whisper speech model" in errors[0]
+    assert _wait(lambda: any(s == "idle" for s in api.states))
+    listener.close()

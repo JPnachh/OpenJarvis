@@ -384,3 +384,49 @@ def test_voice_id_not_reused_across_backends(mock_tts_backend):
 
     # Backend is mock_tts, not the configured kokoro, so bm_george must not leak.
     assert mock_tts_backend.synthesize.call_args.kwargs["voice_id"] != "bm_george"
+
+
+def test_speech_backend_found_after_startup_missed_it(mock_speech_backend, monkeypatch):
+    """A server started before the model/network was ready must not stay deaf."""
+    from fastapi import FastAPI
+
+    from openjarvis.server import api_routes
+    from openjarvis.server.api_routes import speech_router
+
+    app = FastAPI()
+    app.state.speech_backend = None
+    app.state.config = SimpleNamespace(
+        speech=SimpleNamespace(model="base", device="auto", compute_type="int8")
+    )
+    app.include_router(speech_router)
+    client = TestClient(app)
+
+    attempts = []
+    results = [None, mock_speech_backend]
+
+    def fake_discovery(config):
+        attempts.append(1)
+        return results.pop(0)
+
+    monkeypatch.setattr(
+        "openjarvis.speech._discovery.get_speech_backend", fake_discovery
+    )
+    monkeypatch.setattr(
+        api_routes, "_speech_failure_reason", lambda config: "model still downloading"
+    )
+
+    first = client.get("/v1/speech/health").json()
+    assert first == {"available": False, "reason": "model still downloading"}
+    # Within the retry window, no new attempt (and no slow model load).
+    assert client.get("/v1/speech/health").json()["available"] is False
+    assert len(attempts) == 1
+
+    monkeypatch.setattr(api_routes, "_SPEECH_RETRY_SECONDS", 0.0)
+    assert client.get("/v1/speech/health").json()["available"] is True
+    assert len(attempts) == 2
+    # Found once, kept: transcription works without another discovery.
+    response = client.post(
+        "/v1/speech/transcribe", files={"file": ("a.wav", b"x", "audio/wav")}
+    )
+    assert response.json()["text"] == "Hello world"
+    assert len(attempts) == 2

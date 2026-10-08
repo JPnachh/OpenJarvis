@@ -42,6 +42,9 @@ export function useVoiceEvents(): void {
         voice.setListener(listener ? listener.state : null, listener?.detail);
       } else if (event.type === 'state' && event.source === 'listener') {
         voice.setListener(event.state, event.detail);
+        if (event.detail?.startsWith('error: ')) {
+          toast.error(event.detail.slice('error: '.length), { duration: 8000 });
+        }
       } else if (event.type === 'action') {
         // Ran directly on this computer; record it in the chat.
         recordActionExchange(event.text, event.reply);

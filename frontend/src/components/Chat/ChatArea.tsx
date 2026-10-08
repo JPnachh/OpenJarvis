@@ -63,7 +63,10 @@ export function ChatArea() {
     streamingConversationRef.current = isCurrentChatStreaming ? activeId : null;
 
     if (!justFinished) return;
-    if (!voiceOutputEnabled || !voiceAutoplay) return;
+    // Replies to spoken messages are always read aloud; others only with
+    // "Speak replies automatically".
+    const answeredSpeech = Boolean(messages[messages.length - 2]?.spokenInput);
+    if (!voiceOutputEnabled || !(voiceAutoplay || answeredSpeech)) return;
 
     if (!last || last.role !== 'assistant' || activeId === null) return;
     // The background listener speaks replies to requests it heard itself.
@@ -78,7 +81,7 @@ export function ChatArea() {
       const currentTts = useTtsStore.getState();
       const currentLast = app.messages[app.messages.length - 1];
       if (app.activeId !== completedConversationId || app.streamState.isStreaming) return;
-      if (!app.settings.voiceOutputEnabled || !app.settings.voiceAutoplay) return;
+      if (!app.settings.voiceOutputEnabled || !(app.settings.voiceAutoplay || answeredSpeech)) return;
       if (currentLast?.id !== completedMessageId || currentTts.available !== true) return;
       if (currentTts.autoSpokenId === completedMessageId) return;
 

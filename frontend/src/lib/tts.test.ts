@@ -252,3 +252,80 @@ describe('autoplay gating', () => {
     ).toBe(false);
   });
 });
+
+describe('built-in computer voice fallback', () => {
+  class FakeUtterance {
+    voice: unknown = null;
+    lang = '';
+    onend: (() => void) | null = null;
+    onerror: ((e: { error: string }) => void) | null = null;
+    constructor(public text: string) {}
+  }
+  const spoken: FakeUtterance[] = [];
+  let cancels = 0;
+
+  beforeEach(() => {
+    spoken.length = 0;
+    cancels = 0;
+    const speechSynthesis = {
+      speak: (u: FakeUtterance) => spoken.push(u),
+      cancel: () => {
+        cancels += 1;
+      },
+      getVoices: () => [
+        { name: 'Microsoft David', lang: 'en-US', localService: true },
+        { name: 'Microsoft Sabina', lang: 'es-MX', localService: true },
+      ],
+    };
+    vi.stubGlobal('window', { speechSynthesis, SpeechSynthesisUtterance: FakeUtterance });
+    vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);
+  });
+
+  it('is used when the server has no TTS backend', async () => {
+    health.mockResolvedValue({ available: false });
+    await useTtsStore.getState().ensureHealth();
+    expect(useTtsStore.getState().available).toBe(true);
+    expect(useTtsStore.getState().engine).toBe('browser');
+
+    await useTtsStore.getState().speak('m1', '**Hola**, ¿qué tal? Mira [esto](https://x.y)');
+    expect(synth).not.toHaveBeenCalled();
+    expect(spoken).toHaveLength(1);
+    expect(spoken[0].text).toBe('Hola, ¿qué tal? Mira esto');
+    expect(spoken[0].lang).toBe('es-MX'); // Spanish text, Spanish voice
+    expect(useTtsStore.getState().state).toBe('speaking');
+
+    spoken[0].onend?.();
+    expect(useTtsStore.getState().state).toBe('idle');
+  });
+
+  it('takes over when the server fails to synthesize', async () => {
+    health.mockResolvedValue({ available: true });
+    await useTtsStore.getState().ensureHealth();
+    synth.mockRejectedValue(new Error('No text-to-speech backend available'));
+
+    await useTtsStore.getState().speak('m1', 'Hello there');
+    expect(spoken).toHaveLength(1);
+    expect(spoken[0].lang).toBe('en-US');
+    expect(useTtsStore.getState().engine).toBe('browser');
+    expect(useTtsStore.getState().error).toBeNull();
+  });
+
+  it('stop cancels the browser voice', async () => {
+    health.mockResolvedValue({ available: false });
+    await useTtsStore.getState().ensureHealth();
+    await useTtsStore.getState().speak('m1', 'Hola');
+    const before = cancels;
+    useTtsStore.getState().stop();
+    expect(cancels).toBeGreaterThan(before);
+    expect(useTtsStore.getState().state).toBe('idle');
+  });
+});
+
+describe('speakableText', () => {
+  it('drops markdown that would be read out as symbols', async () => {
+    const { speakableText } = await import('./tts');
+    expect(speakableText('# Título\n- uno\n- **dos**\n```js\ncode()\n```\nVer `x`')).toBe(
+      'Título uno dos Ver x',
+    );
+  });
+});

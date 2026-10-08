@@ -1,3 +1,4 @@
+import { browserTtsAvailable, useTtsStore } from '../lib/tts';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Palette,
@@ -292,6 +293,7 @@ export function SettingsPage() {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [speechBackendAvailable, setSpeechBackendAvailable] = useState<boolean | null>(null);
+  const [speechBackendReason, setSpeechBackendReason] = useState<string | null>(null);
   const [ttsBackend, setTtsBackend] = useState<{ available: boolean; backend?: string; voice_id?: string } | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -394,7 +396,10 @@ export function SettingsPage() {
   useEffect(() => {
     checkHealth().then(setHealthy);
     fetchSpeechHealth()
-      .then((h) => setSpeechBackendAvailable(h.available))
+      .then((h) => {
+        setSpeechBackendAvailable(h.available);
+        setSpeechBackendReason(h.available ? null : h.reason ?? null);
+      })
       .catch(() => setSpeechBackendAvailable(false));
     fetchTtsHealth()
       .then((h) => setTtsBackend(h))
@@ -922,14 +927,28 @@ export function SettingsPage() {
                 <span
                   className="w-2 h-2 rounded-full"
                   style={{
-                    background: ttsBackend?.available ? 'var(--color-success)' : 'var(--color-text-tertiary)',
+                    background: ttsBackend?.available || browserTtsAvailable() ? 'var(--color-success)' : 'var(--color-text-tertiary)',
                   }}
                 />
                 <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   {ttsBackend === null ? 'Checking...'
                     : ttsBackend.available ? `${ttsBackend.backend}${ttsBackend.voice_id ? ` / ${ttsBackend.voice_id}` : ''}`
+                    : browserTtsAvailable() ? 'Computer voice (built in)'
                     : 'Not configured'}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tts = useTtsStore.getState();
+                    void tts.ensureHealth().then(() =>
+                      useTtsStore.getState().speak('voice-test', 'Hola, soy Jarvis. Así sueno.'),
+                    );
+                  }}
+                  className="ml-2 px-2 py-0.5 rounded-md text-xs cursor-pointer"
+                  style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                >
+                  Test voice
+                </button>
               </div>
             </SettingRow>
             <SettingRow label="Backend status" description="Requires Whisper, Deepgram, or another speech backend">
@@ -951,6 +970,11 @@ export function SettingsPage() {
             </SettingRow>
             {!speechBackendAvailable && speechBackendAvailable !== null && (
               <div className="text-xs mt-2 px-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                {speechBackendReason && speechBackendReason !== 'No speech backend configured' && (
+                  <span className="block mb-1" style={{ color: 'var(--color-warning)' }}>
+                    {speechBackendReason}
+                  </span>
+                )}
                 Set up a speech backend to use voice input.
                 See the <a href="https://open-jarvis.github.io/OpenJarvis/user-guide/tools/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)' }}>documentation</a> for details.
               </div>

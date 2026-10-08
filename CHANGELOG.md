@@ -132,6 +132,26 @@ stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
 
 ### Fixed
 
+**Voice answers out of the box**:
+
+- **Voice output.** Without a TTS backend (Kokoro, OpenAI or Cartesia),
+  replies were silent, and the read-aloud button and autoplay were hidden.
+  The page now falls back to the computer's built-in voices (browser speech
+  synthesis, with a Spanish voice for Spanish text and markdown stripped),
+  and the hands-free listener falls back to the system voice (Windows SAPI,
+  macOS `say`, Linux espeak-ng/spd-say). Settings shows the voice in use
+  and has a **Test voice** button.
+- **Spoken messages.** Messages spoken into the mic are sent automatically
+  and their replies are read aloud. Voice input and read-aloud are on by
+  default.
+- **Speech-to-text discovery.** The server no longer stays without
+  speech-to-text when startup could not load Whisper (no network yet,
+  model still downloading). Requests retry discovery every 30 s, and the
+  reason (for example, a failed model download) appears in Settings and
+  in the mic tooltip.
+- **Listener errors.** Failures in the hands-free listener are reported as
+  a page notice and a tray notification instead of staying silent.
+
 **`jarvis gui` launch failures**: a second `jarvis gui` no longer aborts with
 "Could not start the OpenJarvis API server" while the first server is still
 running; it reuses that server, including one started on another port. The

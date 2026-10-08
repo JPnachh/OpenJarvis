@@ -130,6 +130,8 @@ export interface ChatMessage {
   /** Set on a user message spoken to the background listener, which reads
    * the reply aloud itself (so the page must not also speak it). */
   voiceCommandId?: string;
+  /** The user spoke this message into the mic; Jarvis answers aloud. */
+  spokenInput?: boolean;
 }
 
 export interface Conversation {
