@@ -15,6 +15,8 @@ import { VoiceStatusBar } from './VoiceStatusBar';
 import { useVoiceStore } from '../../lib/voice';
 import { postVoiceReply } from '../../lib/voice-api';
 import { stripThinkTags } from '../../lib/message-text';
+import { recordActionExchange, runAction } from '../../lib/actions';
+import { useTtsStore } from '../../lib/tts';
 
 interface SendOptions {
   /** Called with the final reply text once streaming ends. */
@@ -122,7 +124,23 @@ export function InputArea() {
   );
   const voiceAutoSendRef = useRef(voiceAutoSend);
   voiceAutoSendRef.current = voiceAutoSend;
-  const handleTranscript = useCallback((text: string) => {
+  const handleTranscript = useCallback(async (text: string) => {
+    // Direct commands ("sube el volumen", "pon X en Spotify") run at once,
+    // without the model; Jarvis answers aloud when voice output is on.
+    try {
+      const action = await runAction(text);
+      if (action.handled && action.reply) {
+        recordActionExchange(text, action.reply);
+        if (!action.ok) toast.error(action.reply);
+        const tts = useTtsStore.getState();
+        if (useAppStore.getState().settings.voiceOutputEnabled && tts.available) {
+          void tts.speak(`action-${Date.now()}`, action.reply);
+        }
+        return;
+      }
+    } catch {
+      // Server unreachable: fall through to the normal path.
+    }
     const app = useAppStore.getState();
     // Auto-send only when the message can actually go out; otherwise keep the
     // words in the box rather than dropping them.

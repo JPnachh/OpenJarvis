@@ -10,6 +10,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Direct commands, tray icon, self-improving wake word and one-step desktop
+setup**:
+
+- **Direct commands.** `openjarvis.actions` understands short Spanish and
+  English commands and runs them on the computer without the model, with a
+  spoken reply: volume, media keys, Spotify search and play (Web API with
+  token refresh and device wake-up, falling back to media keys or an
+  in-app search), opening apps and sites, time and date, and reading and
+  adding Google Calendar events (including "mañana a las 5", "el viernes",
+  "en 30 minutos").
+- **Commands page.** A new **Commands** page lists the built-in commands,
+  has a try box, and lets you teach your own (`~/.openjarvis/commands.json`).
+  Shell actions need an explicit opt-in.
+- **Agent tools.** The same abilities are agent tools: `media_control`,
+  `system_volume`, `open_app`, `spotify_play`, `calendar_events` and
+  `calendar_add_event`.
+- **Spotify scopes.** The Spotify connector now requests the playback scopes.
+  Reconnect with `jarvis connect spotify`.
+- **Tray icon.** `jarvis tray` puts OpenJarvis in the system tray. The tray
+  runs the listener, its status dot shows grey, cyan, red, amber or green,
+  and its menu covers open, listen, train, commands and start-at-login.
+- **Learning wake word.** Confirmed "Hey Jarvis" hits become training
+  samples. Up to six learned takes are kept, the profile is retrained every
+  two, and `--no-learn` turns this off.
+- **One-step setup.** `jarvis setup-desktop` adds the shortcut, prepares the
+  frontend and sets up tray autostart. `scripts/windows/setup-jarvis.ps1`
+  installs or updates from a chosen repository and branch with one pasted
+  line.
+
 **"Hey Jarvis" wake word trained on your voice, and hands-free
 conversation**:
 

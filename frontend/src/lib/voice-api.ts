@@ -15,7 +15,8 @@ export type ListenerState =
 export type VoiceEvent =
   | { type: 'hello'; states: Record<string, { state: ListenerState; detail?: string | null }> }
   | { type: 'state'; source: 'ui' | 'listener'; state: ListenerState; detail?: string | null }
-  | { type: 'command'; id: string; text: string; source: string };
+  | { type: 'command'; id: string; text: string; source: string }
+  | { type: 'action'; id: string; text: string; reply: string; ok: boolean; intent: string };
 
 /**
  * Follow /v1/voice/events until aborted. Uses fetch rather than EventSource so

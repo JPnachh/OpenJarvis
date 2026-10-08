@@ -18,6 +18,7 @@ import {
   ScrollText,
   Database,
   AudioLines,
+  Wand2,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
@@ -60,6 +61,7 @@ export function Sidebar() {
     { path: '/agents', icon: Bot, label: 'Agents' },
     { path: '/logs', icon: ScrollText, label: 'Logs' },
     { path: '/wake-word', icon: AudioLines, label: 'Hey Jarvis' },
+    { path: '/commands', icon: Wand2, label: 'Commands' },
     { path: '/settings', icon: Settings, label: 'Settings' },
     { path: '/get-started', icon: Rocket, label: 'Get Started' },
   ];

@@ -179,9 +179,7 @@ async def voice_command(request: Request):
     else:
         backend = getattr(request.app.state, "speech_backend", None)
         if backend is None:
-            raise HTTPException(
-                status_code=501, detail="Speech backend not configured"
-            )
+            raise HTTPException(status_code=501, detail="Speech backend not configured")
         form = await request.form()
         audio = form.get("file")
         if audio is None:
@@ -200,8 +198,40 @@ async def voice_command(request: Request):
         text = (result.text or "").strip()
     if not text:
         return {"text": "", "delivered": 0, "id": None}
+
+    # Direct commands ("sube el volumen", "pon X en Spotify") run right here,
+    # in a fraction of a second, without the model. The page still shows the
+    # exchange, and the reply is ready at once for the listener to speak.
+    action = await _run_action(text)
+    if action is not None:
+        command_id = uuid.uuid4().hex
+        hub._reply_events[command_id] = asyncio.Event()
+        hub.post_reply(command_id, action.reply)
+        delivered = hub.publish(
+            {
+                "type": "action",
+                "id": command_id,
+                "text": text,
+                "reply": action.reply,
+                "ok": action.ok,
+                "intent": action.intent,
+            }
+        )
+        return {
+            "text": text,
+            "delivered": delivered,
+            "id": command_id,
+            "action": {"reply": action.reply, "ok": action.ok, "intent": action.intent},
+        }
+
     event = hub.command(text, source)
     return {"text": text, "delivered": event["delivered"], "id": event["id"]}
+
+
+async def _run_action(text: str):
+    from openjarvis.actions.router import handle
+
+    return await asyncio.to_thread(handle, text)
 
 
 @voice_router.post("/reply")
@@ -290,3 +320,133 @@ async def wakeword_train(request: Request):
         "threshold": profile.threshold,
         "stats": profile.stats,
     }
+
+
+# ---------------------------------------------------------------------------
+# Direct actions and user-taught commands
+# ---------------------------------------------------------------------------
+
+actions_router = APIRouter(prefix="/v1/actions", tags=["voice"])
+
+_EXAMPLES = [
+    {
+        "group": "Volume",
+        "phrases": ["sube el volumen", "baja el volumen", "volumen al 40", "silencio"],
+    },
+    {
+        "group": "Music",
+        "phrases": [
+            "pausa",
+            "dale play",
+            "siguiente canción",
+            "la anterior",
+            "¿qué canción es esta?",
+        ],
+    },
+    {
+        "group": "Spotify",
+        "phrases": [
+            "pon Bad Bunny en Spotify",
+            "pon la playlist rock en español",
+            "pon música de Shakira",
+        ],
+    },
+    {
+        "group": "Apps",
+        "phrases": ["abre Spotify", "abre YouTube", "abre la calculadora"],
+    },
+    {
+        "group": "Calendar",
+        "phrases": [
+            "¿qué tengo hoy?",
+            "¿qué tengo mañana?",
+            "¿cuál es mi próxima reunión?",
+            "agenda dentista el viernes a las 10",
+        ],
+    },
+    {"group": "Time", "phrases": ["¿qué hora es?", "¿qué día es hoy?"]},
+]
+
+
+@actions_router.post("/run")
+async def actions_run(request: Request):
+    """Run *text* if it is a direct command; ``handled: false`` otherwise."""
+    body = await request.json()
+    text = str(body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing 'text'")
+    action = await _run_action(text)
+    if action is None:
+        return {"handled": False}
+    return {
+        "handled": True,
+        "reply": action.reply,
+        "ok": action.ok,
+        "intent": action.intent,
+    }
+
+
+@actions_router.get("/commands")
+async def actions_commands():
+    from openjarvis.actions.custom import ACTIONS, KEYS, CommandBook, commands_path
+
+    book = CommandBook.load()
+    return {
+        "path": str(commands_path()),
+        "allow_shell": book.allow_shell,
+        "actions": list(ACTIONS),
+        "keys": list(KEYS),
+        "commands": [
+            {
+                "id": c.id,
+                "phrases": c.phrases,
+                "action": c.action,
+                "target": c.target,
+                "reply": c.reply,
+            }
+            for c in book.commands
+        ],
+        "examples": _EXAMPLES,
+    }
+
+
+@actions_router.post("/commands")
+async def actions_add_command(request: Request):
+    from openjarvis.actions.custom import CommandBook, CustomCommand
+
+    body = await request.json()
+    phrases = body.get("phrases")
+    if isinstance(phrases, str):
+        phrases = [p for p in phrases.split("\n")]
+    command = CustomCommand(
+        phrases=list(phrases or []),
+        action=str(body.get("action") or ""),
+        target=str(body.get("target") or ""),
+        reply=str(body.get("reply") or ""),
+    )
+    book = CommandBook.load()
+    if command.action == "shell" and not book.allow_shell:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'Shell commands are off. To allow them, set "allow_shell": true '
+                "in commands.json yourself."
+            ),
+        )
+    try:
+        book.add(command)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    book.save()
+    return {"id": command.id}
+
+
+@actions_router.delete("/commands/{command_id}")
+async def actions_delete_command(command_id: str):
+    from openjarvis.actions.custom import CommandBook
+
+    book = CommandBook.load()
+    if not book.remove(command_id):
+        raise HTTPException(status_code=404, detail="Command not found")
+    book.save()
+    return {"ok": True}

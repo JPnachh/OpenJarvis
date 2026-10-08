@@ -131,3 +131,26 @@ def test_sample_management(tmp_path, rng):
     assert ww.delete_sample(sample.id, root=tmp_path)
     assert not ww.delete_sample(sample.id, root=tmp_path)
     assert ww.list_samples(tmp_path) == []
+
+
+def test_learning_from_hits_adds_capped_samples_and_retrains(trained, tmp_path, rng):
+    before = ww.WakeWordProfile.load(tmp_path)
+    retrained = [
+        ww.learn_from_hit(take(HEY_JARVIS, rng), root=tmp_path)
+        for _ in range(ww.MAX_AUTO_SAMPLES + 2)
+    ]
+    # Retrains every RETRAIN_EVERY hits.
+    assert retrained.count(True) == (ww.MAX_AUTO_SAMPLES + 2) // ww.RETRAIN_EVERY
+    learned = [s for s in ww.list_samples(tmp_path) if s.id.startswith(ww.AUTO_PREFIX)]
+    assert len(learned) == ww.MAX_AUTO_SAMPLES  # oldest learned takes dropped
+    after = ww.WakeWordProfile.load(tmp_path)
+    assert len(after.templates) == 6 + ww.MAX_AUTO_SAMPLES
+    assert after.phrase == before.phrase
+
+
+def test_detector_keeps_the_matching_audio(trained, rng):
+    detector = ww.WakeWordDetector(trained)
+    audio = np.concatenate([room(1.0, rng), take(HEY_JARVIS, rng), room(1.0, rng)])
+    assert _stream(detector, audio)
+    assert detector.last_match_audio is not None
+    assert 0.4 * SR < detector.last_match_audio.size < 1.5 * SR

@@ -76,6 +76,7 @@ def add_sample(
     *,
     sample_rate: int = SAMPLE_RATE,
     root: Path | None = None,
+    prefix: str = "",
 ) -> Sample:
     """Store one training recording (WAV bytes or float samples).
 
@@ -101,7 +102,7 @@ def add_sample(
         raise ValueError("The recording is too quiet. Move closer to the microphone.")
     folder = _samples_dir(kind, root)
     folder.mkdir(parents=True, exist_ok=True)
-    sample_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    sample_id = f"{prefix}{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
     path = folder / f"{sample_id}.wav"
     path.write_bytes(write_wav(samples))
     return Sample(sample_id, kind, path, seconds)
@@ -393,6 +394,7 @@ class WakeWordDetector:
         self._cooldown_until = 0.0
         #: Last computed best distance, for live test meters.
         self.last_distance = math.inf
+        self.last_match_audio: Optional[np.ndarray] = None
 
     def reset(self) -> None:
         self._buffer.clear()
@@ -433,15 +435,64 @@ class WakeWordDetector:
             return False
 
         best = math.inf
+        best_window: Optional[np.ndarray] = None
         for template in self.profile.templates:
             needed = len(template) * 160 + 240
             if audio.size < needed:
                 continue
             window = audio[-needed:]
-            best = min(best, dtw_distance(mfcc(window), template))
+            distance = dtw_distance(mfcc(window), template)
+            if distance < best:
+                best, best_window = distance, window
         self.last_distance = best
         if best <= self.threshold:
+            #: The audio that matched, kept so a confirmed hit can be learned.
+            self.last_match_audio = best_window
             self._cooldown_until = self._t + self.cooldown
             self.reset()
             return True
         return False
+
+
+# ---------------------------------------------------------------------------
+# Learning from use
+# ---------------------------------------------------------------------------
+
+AUTO_PREFIX = "auto-"
+MAX_AUTO_SAMPLES = 6
+RETRAIN_EVERY = 2
+
+
+def learn_from_hit(audio: np.ndarray, root: Path | None = None) -> bool:
+    """Keep a confirmed wake-word hit as a training sample; maybe retrain.
+
+    Called only when the hit was followed by a real request, so it was the
+    user talking to Jarvis. Learned takes are capped (oldest dropped) so the
+    recordings the user made on purpose always carry most of the weight, and
+    the profile is rebuilt every few new takes. Returns True after a retrain.
+    """
+    try:
+        add_sample(audio, "positive", root=root, prefix=AUTO_PREFIX)
+    except ValueError:
+        return False
+    auto = sorted(
+        (s for s in list_samples(root) if s.id.startswith(AUTO_PREFIX)),
+        key=lambda s: s.id,
+    )
+    for stale in auto[:-MAX_AUTO_SAMPLES]:
+        delete_sample(stale.id, root)
+    profile = WakeWordProfile.load(root)
+    learned = (
+        int((profile.stats or {}).get("learned_since_train", 0)) + 1 if profile else 1
+    )
+    if profile is not None and learned < RETRAIN_EVERY:
+        profile.stats["learned_since_train"] = learned
+        profile.save(root)
+        return False
+    try:
+        retrained = train(profile.phrase if profile else DEFAULT_PHRASE, root)
+    except TrainingError:
+        return False
+    retrained.stats["learned_since_train"] = 0
+    retrained.save(root)
+    return True

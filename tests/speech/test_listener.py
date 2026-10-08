@@ -190,3 +190,45 @@ def test_command_recorder_outcomes(rng):
             break
     assert outcome == "done"
     assert speech.wav().startswith(b"RIFF")
+
+
+def test_confirmed_wake_word_is_learned_and_actions_spoken_at_once(rng, tmp_path):
+    for _ in range(6):
+        ww.add_sample(write_wav(take(HEY_JARVIS, rng)), "positive", root=tmp_path)
+    detector = ww.WakeWordDetector(ww.train(root=tmp_path))
+
+    class ActionApi(FakeApi):
+        def post_wav(self, path, wav, timeout=120.0):
+            self.commands.append(wav)
+            return {
+                "text": "sube el volumen",
+                "delivered": 0,
+                "id": "a1",
+                "action": {"reply": "Subí el volumen.", "ok": True},
+            }
+
+        def get(self, path, timeout=5.0):
+            if path.startswith("/v1/voice/reply/"):
+                raise AssertionError("actions must not wait for the model")
+            return super().get(path, timeout)
+
+    api, speaker = ActionApi(), FakeSpeaker()
+    learned = []
+    listener, _ = _listener(
+        api, speaker, wake_detector=detector, learner=lambda a: learned.append(a)
+    )
+    listener._ui_open = True
+    listener._last_poll = time.monotonic() + 3600
+    audio = np.concatenate(
+        [
+            room(1.0, rng),
+            take(HEY_JARVIS, rng),
+            room(0.6, rng),
+            take(OTHER2, rng),
+            room(2.0, rng),
+        ]
+    )
+    _feed(listener, audio)
+    assert _wait(lambda: api.synthesized == ["Subí el volumen."])
+    assert len(learned) == 1 and learned[0] is not None
+    listener.close()

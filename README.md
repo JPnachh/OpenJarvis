@@ -67,13 +67,26 @@ server log. It requires Node.js 22+ and is available from a source checkout;
 packaged desktop installers are available from the
 [latest release](https://github.com/open-jarvis/OpenJarvis/releases).
 
-**Hands-free.** Run `jarvis shortcut` once to put an OpenJarvis icon on the
-desktop. Then train "Hey Jarvis" on your own voice: open
-**Settings → Hey Jarvis → Train my voice** in the app, or run
-`jarvis wake train`. Finally, start the background listener at every login
-with `uv run --extra desktop jarvis listen --autostart`. After that, say "Hey
-Jarvis" or clap twice, wait for the chirp, and ask. The answer appears in the
-chat and is read aloud. See the
+**Hands-free desktop assistant.** On Windows, paste this line into
+PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/JPnachh/OpenJarvis/main/scripts/windows/setup-jarvis.ps1 | iex
+```
+
+On macOS or Linux, run `uv sync --extra desktop && uv run jarvis setup-desktop`.
+
+Either way you get:
+
+- a desktop icon;
+- a tray icon next to the clock;
+- "Hey Jarvis" and clap detection at every login.
+
+Then train "Hey Jarvis" on your voice: in the app, open **Hey Jarvis** in
+the sidebar. Direct commands run instantly without the model, for example
+"sube el volumen", "pon Bad Bunny en Spotify", "abre YouTube" or "agenda
+dentista mañana a las 5". Teach Jarvis your own commands under
+**Commands**. See the
 [hands-free voice guide](docs/user-guide/hands-free-voice.md).
 
 For voice, turn on **Settings → Speech**. While the microphone is open, a

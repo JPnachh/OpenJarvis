@@ -227,9 +227,13 @@ def autostart_path() -> Path:
     return config / "autostart" / "openjarvis-clap.desktop"
 
 
-def install_autostart(clap_args: list[str]) -> Path:
-    """Start ``jarvis clap`` (with *clap_args*) at every login, hidden."""
-    command = jarvis_command("clap", *clap_args, windowless=True)
+def install_autostart(clap_args: list[str], subcommand: str = "clap") -> Path:
+    """Start ``jarvis <subcommand>`` (with *clap_args*) at every login, hidden.
+
+    The listener and the tray share one entry: only one of them should own
+    the microphone, so installing either replaces the other.
+    """
+    command = jarvis_command(subcommand, *clap_args, windowless=True)
     root = project_root()
     path = autostart_path()
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useVoiceStore } from '../lib/voice';
 import { useTtsStore } from '../lib/tts';
+import { recordActionExchange } from '../lib/actions';
 import { postUiVoiceState, streamVoiceEvents, type VoiceEvent } from '../lib/voice-api';
 
 const RETRY_MIN_MS = 1000;
@@ -36,6 +37,10 @@ export function useVoiceEvents(): void {
         voice.setListener(listener ? listener.state : null, listener?.detail);
       } else if (event.type === 'state' && event.source === 'listener') {
         voice.setListener(event.state, event.detail);
+      } else if (event.type === 'action') {
+        // Ran directly on this computer; record it in the chat.
+        recordActionExchange(event.text, event.reply);
+        if (!event.ok) toast.error(event.reply, { duration: 6000 });
       } else if (event.type === 'command') {
         toast(`You said: “${event.text}”`, { duration: 5000 });
         voice.setPendingCommand({ id: event.id, text: event.text });

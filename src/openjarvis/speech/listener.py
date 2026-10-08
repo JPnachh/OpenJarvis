@@ -166,6 +166,8 @@ class CommandRecorder:
         self.silence_seconds = silence_seconds
         self.max_seconds = max_seconds
         self.blocks: list[np.ndarray] = []
+        #: Audio of the wake word that started this request, if any.
+        self.wake_audio: Optional[np.ndarray] = None
         self.elapsed = 0.0
         self.heard = False
         self._quiet = 0.0
@@ -238,6 +240,8 @@ class ListenerOptions:
     speak_replies: bool = True
     sounds: bool = True
     reply_timeout: float = 180.0
+    #: Learn from confirmed "Hey Jarvis" hits (keeps the profile improving).
+    adapt: bool = True
 
 
 class VoiceListener:
@@ -255,6 +259,7 @@ class VoiceListener:
         log: Callable[[str], None] = print,
         profile_loader: Optional[Callable[[], object]] = None,
         profile_path: Optional[Path] = None,
+        learner: Optional[Callable[[np.ndarray], bool]] = None,
     ) -> None:
         self.api = api
         self.options = options
@@ -265,6 +270,8 @@ class VoiceListener:
         self.log = log
         self.profile_loader = profile_loader
         self.profile_path = profile_path
+        #: Stores a confirmed wake-word hit for training; True if retrained.
+        self.learner = learner
         self._profile_mtime = self._mtime()
         self._recorder: Optional[CommandRecorder] = None
         self._busy = threading.Event()  # transcribing / waiting / speaking
@@ -382,6 +389,10 @@ class VoiceListener:
             self.speaker.play(chirp("listen"), 22050)
         self.set_state("listening", what)
         self._recorder = CommandRecorder(self._noise)
+        if what == "wake word" and self.wake_detector is not None:
+            self._recorder.wake_audio = getattr(
+                self.wake_detector, "last_match_audio", None
+            )
         if self.wake_detector is not None:
             self.wake_detector.reset()
 
@@ -397,7 +408,9 @@ class VoiceListener:
         self.set_state("transcribing")
         self._busy.set()
         worker = threading.Thread(
-            target=self._converse, args=(recorder.wav(),), daemon=True
+            target=self._converse,
+            args=(recorder.wav(), recorder.wake_audio),
+            daemon=True,
         )
         worker.start()
         self._threads.append(worker)
@@ -412,7 +425,16 @@ class VoiceListener:
             time.sleep(1.0)
         return False
 
-    def _converse(self, wav: bytes) -> None:
+    def _learn(self, wake_audio) -> None:
+        if wake_audio is None or not self.options.adapt or self.learner is None:
+            return
+        try:
+            if self.learner(wake_audio):
+                self.log("  (learned from this wake word; voice profile updated)")
+        except Exception:  # noqa: BLE001 - learning must never break a request
+            logger.debug("Wake word learning failed", exc_info=True)
+
+    def _converse(self, wav: bytes, wake_audio=None) -> None:
         try:
             if not self._wait_for_api():
                 self.log("  OpenJarvis API is not reachable; request dropped.")
@@ -435,6 +457,16 @@ class VoiceListener:
                 self._error_cue()
                 return
             self.log(f"  You: {text}")
+            # A real request followed: the wake word was meant. Learn from it.
+            self._learn(wake_audio)
+            action = result.get("action")
+            if action:
+                # Ran directly on this computer; no model, answer at once.
+                answer = str(action.get("reply") or "")
+                self.log(f"  Jarvis: {answer}")
+                if answer and self.options.speak_replies:
+                    self._speak(answer)
+                return
             if not result.get("delivered"):
                 self.log("  (waiting for the OpenJarvis page to open)")
             self.set_state("thinking")

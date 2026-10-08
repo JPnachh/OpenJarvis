@@ -11,6 +11,41 @@ Everything runs on your computer:
 - Only the request you speak after the chirp is transcribed, by your
   configured speech backend.
 
+## 0. One-step setup
+
+On Windows, paste this line into PowerShell. You don't need administrator
+rights:
+
+```powershell
+irm https://raw.githubusercontent.com/JPnachh/OpenJarvis/main/scripts/windows/setup-jarvis.ps1 | iex
+```
+
+The script does four things:
+
+1. It installs or updates OpenJarvis in `%LOCALAPPDATA%\OpenJarvis\src`,
+   the same place the official installer uses, so an existing installation
+   is switched over.
+2. It installs the Python packages.
+3. It runs `jarvis setup-desktop`, which:
+   - creates the desktop icon;
+   - prepares the graphical interface;
+   - starts the **tray icon** now and at every login.
+4. The tray icon also listens for "Hey Jarvis" and for claps.
+
+You can change where it installs from with these environment variables:
+
+- `OPENJARVIS_REPO_URL`: the repository
+- `OPENJARVIS_BRANCH`: the branch
+- `OPENJARVIS_HOME`: the install folder
+
+On macOS or Linux, run these from a checkout:
+
+```bash
+uv sync --extra desktop && uv run jarvis setup-desktop
+```
+
+The individual steps are described below.
+
 ## 1. Put OpenJarvis on the desktop
 
 ```bash
@@ -110,6 +145,89 @@ The voice features need the following:
   Microphone → "Let desktop apps access your microphone". On macOS: System
   Settings → Privacy & Security → Microphone. On Linux, also run
   `sudo apt install libportaudio2`.
+
+## 4. The tray icon (next to the clock)
+
+```bash
+uv run --extra desktop jarvis tray              # now
+uv run --extra desktop jarvis tray --autostart  # now and at every login
+```
+
+Click the icon to open OpenJarvis. The tray runs the listener itself, so
+you need either the tray or `jarvis listen`, not both. The coloured dot
+shows what Jarvis is doing:
+
+| Dot | Meaning |
+|---|---|
+| Grey | Not listening |
+| Cyan | Waiting for "Hey Jarvis" |
+| Red | Listening to you |
+| Amber | Thinking |
+| Green | Speaking |
+
+The menu has these items:
+
+- Open OpenJarvis
+- Listen on/off
+- Train my voice
+- Commands
+- Start with my computer
+- Quit
+
+## 5. Direct commands: instant, no model
+
+Some requests run immediately on your computer and get a short spoken
+answer. Anything else goes to the model as usual.
+
+| Say | Does |
+|---|---|
+| "sube / baja el volumen", "volumen al 40", "silencio" | System volume |
+| "pausa", "dale play", "siguiente canción", "la anterior" | Music (Spotify, or the media keys) |
+| "pon Bad Bunny en Spotify", "pon la playlist rock en español", "pon música de Shakira" | Searches Spotify and plays the best match |
+| "abre Spotify", "abre YouTube", "abre la calculadora" | Opens an app or site |
+| "¿qué tengo hoy/mañana?", "¿cuál es mi próxima reunión?" | Reads your Google Calendar |
+| "agenda dentista el viernes a las 10", "recuérdame llamar a mamá en 30 minutos" | Adds a calendar event |
+| "¿qué hora es?", "¿qué día es hoy?" | Time and date |
+
+English phrasing works too, for example "next song", "turn up the volume" and
+"what's on my calendar tomorrow".
+
+These commands need some setup:
+
+- **Spotify control:** run `jarvis connect spotify` and use a **Premium**
+  account. Spotify only allows remote control for Premium. Without it,
+  play, pause, next and previous use your keyboard's media keys, and a
+  search opens in the Spotify app.
+- **Calendar:** run `jarvis connect gdrive`. The same Google sign-in covers
+  Calendar.
+- **Linux volume and media:** install `pactl` and `playerctl`.
+
+The model gets the same abilities as tools, so a normal conversation can
+also use them, for example "pon algo tranquilo para trabajar" or "agenda mi
+cita del jueves a las 4". The tools are `media_control`, `system_volume`,
+`open_app`, `spotify_play`, `calendar_events` and `calendar_add_event`.
+
+### Teach Jarvis your own commands
+
+Open **Commands** in the sidebar. Type one or more phrases, then choose what
+Jarvis does:
+
+- open an app, site, file or link;
+- play something on Spotify;
+- press a media or volume key;
+- just answer.
+
+The commands are saved in `~/.openjarvis/commands.json`. Shell commands are
+off unless you set `"allow_shell": true` in that file yourself, so that a
+misheard phrase can never run a program.
+
+## 6. Jarvis keeps learning your voice
+
+When "Hey Jarvis" is recognised and you then ask something, that take is
+saved as a training sample, marked "learned" on the training page. The
+profile is rebuilt every two such takes. Only the six most recent learned
+takes are kept, so the recordings you made on purpose always carry most of
+the weight. To turn this off, use `jarvis listen --no-learn`.
 
 ## Tips for reliable detection
 

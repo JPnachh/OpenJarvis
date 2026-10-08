@@ -124,6 +124,11 @@ def _wake_detector(sensitivity: float):
 @click.option("--no-claps", is_flag=True, help="Ignore claps.")
 @click.option("--no-wake", is_flag=True, help="Ignore the 'Hey Jarvis' wake word.")
 @click.option(
+    "--no-learn",
+    is_flag=True,
+    help="Do not learn from successful 'Hey Jarvis' (the profile stays as trained).",
+)
+@click.option(
     "--open-only",
     is_flag=True,
     help="Only open OpenJarvis; do not listen for a request afterwards.",
@@ -162,6 +167,7 @@ def listen(
     wake_sensitivity: float,
     no_claps: bool,
     no_wake: bool,
+    no_learn: bool,
     open_only: bool,
     no_speak: bool,
     frontend_port: int,
@@ -221,6 +227,7 @@ def listen(
         for flag, enabled in (
             ("--no-claps", no_claps),
             ("--no-wake", no_wake),
+            ("--no-learn", no_learn),
             ("--open-only", open_only),
             ("--no-speak", no_speak),
             ("--quiet", quiet),
@@ -317,6 +324,7 @@ def listen(
                 converse=not open_only,
                 speak_replies=not no_speak,
                 sounds=not quiet,
+                adapt=not no_learn,
             ),
             clap_detector=clap_detector,
             wake_detector=wake,
@@ -327,6 +335,7 @@ def listen(
             if no_wake
             else lambda: _wake_detector(wake_sensitivity),
             profile_path=None if no_wake else wakeword.wakeword_dir() / "profile.json",
+            learner=None if no_wake or no_learn else wakeword.learn_from_hit,
         )
         try:
             for block in microphone_blocks(lambda: False, device=mic):

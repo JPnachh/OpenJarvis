@@ -213,6 +213,11 @@ export function WakeWordPage() {
           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
         >
           #{i + 1} · {s.seconds.toFixed(1)}s
+          {s.id.startsWith('auto-') && (
+            <span title="Learned automatically from a 'Hey Jarvis' that worked" style={{ color: 'var(--color-accent)' }}>
+              · learned
+            </span>
+          )}
           <button type="button" className="p-1 cursor-pointer" aria-label="Play" onClick={() => void play(s.id)}>
             <Play size={12} />
           </button>
@@ -262,7 +267,8 @@ export function WakeWordPage() {
           <p className="text-xs mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
             Click, say the phrase once the way you normally would, and pause — recording stops on its
             own. Do it at least {minPositives} times ({recommended}+ is best), from where you usually
-            sit. You can use your own phrase, e.g. “Oye Jarvis”.
+            sit. You can use your own phrase, e.g. “Oye Jarvis”. Jarvis also keeps learning: each
+            time it recognises you and you ask something, that take is added (marked “learned”).
           </p>
           {recordButton('positive', positives.length ? 'Record another' : 'Record')}
           {positives.length > 0 && sampleList(positives)}

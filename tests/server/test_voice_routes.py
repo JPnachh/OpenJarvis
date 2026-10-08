@@ -36,6 +36,7 @@ def app():
     app.state.speech_backend = backend
     app.include_router(voice_routes.voice_router)
     app.include_router(voice_routes.wakeword_router)
+    app.include_router(voice_routes.actions_router)
     return app
 
 
@@ -167,3 +168,70 @@ def test_training_without_samples_explains(client, tmp_path, monkeypatch):
     response = client.post("/v1/wakeword/train", json={})
     assert response.status_code == 400
     assert "at least 3" in response.json()["detail"]
+
+
+def test_direct_command_runs_without_the_model(client, app, monkeypatch):
+    from openjarvis.actions import router as actions_router
+    from openjarvis.actions.router import ActionResult
+
+    monkeypatch.setattr(
+        actions_router,
+        "handle",
+        lambda text: (
+            ActionResult("volume.up", "Subí el volumen.") if "volumen" in text else None
+        ),
+    )
+    result = client.post("/v1/voice/command", json={"text": "sube el volumen"}).json()
+    assert result["action"] == {
+        "reply": "Subí el volumen.",
+        "ok": True,
+        "intent": "volume.up",
+    }
+    # The listener can collect the spoken reply at once.
+    assert client.get(f"/v1/voice/reply/{result['id']}?timeout=1").json() == {
+        "text": "Subí el volumen."
+    }
+    assert app.state.voice_hub.pending == []  # nothing queued for the model
+
+    other = client.post("/v1/voice/command", json={"text": "cuéntame un chiste"})
+    assert "action" not in other.json()
+
+    run = client.post("/v1/actions/run", json={"text": "sube el volumen"}).json()
+    assert run["handled"] and run["reply"] == "Subí el volumen."
+    assert client.post("/v1/actions/run", json={"text": "hola"}).json() == {
+        "handled": False
+    }
+
+
+def test_custom_commands_api(client, tmp_path, monkeypatch):
+    from openjarvis.actions import custom
+
+    monkeypatch.setattr(custom, "commands_path", lambda: tmp_path / "commands.json")
+    info = client.get("/v1/actions/commands").json()
+    assert info["commands"] == [] and info["examples"]
+
+    created = client.post(
+        "/v1/actions/commands",
+        json={
+            "phrases": "modo trabajo\nwork mode",
+            "action": "open",
+            "target": "https://calendar.google.com",
+            "reply": "Listo",
+        },
+    )
+    assert created.status_code == 200, created.text
+    shell = client.post(
+        "/v1/actions/commands",
+        json={"phrases": ["x"], "action": "shell", "target": "rm -rf /"},
+    )
+    assert shell.status_code == 400
+    duplicate = client.post(
+        "/v1/actions/commands",
+        json={"phrases": ["Modo trabajo"], "action": "say", "reply": "hi"},
+    )
+    assert duplicate.status_code == 400
+
+    commands = client.get("/v1/actions/commands").json()["commands"]
+    assert commands[0]["phrases"] == ["modo trabajo", "work mode"]
+    assert client.delete(f"/v1/actions/commands/{commands[0]['id']}").status_code == 200
+    assert client.get("/v1/actions/commands").json()["commands"] == []
