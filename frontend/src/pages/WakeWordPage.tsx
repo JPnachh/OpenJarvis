@@ -10,6 +10,7 @@ import {
   uploadWakeWordSample,
   type WakeWordStats,
   type WakeWordStatus,
+  OUTDATED_SERVER_MESSAGE,
 } from '../lib/voice-api';
 import { recordClip } from '../lib/wav-recorder';
 import { useVoiceStore } from '../lib/voice';
@@ -247,7 +248,13 @@ export function WakeWordPage() {
 
         {loadError && (
           <div className="mb-4 rounded-lg px-4 py-3 text-sm" style={{ background: 'color-mix(in srgb, var(--color-error) 8%, transparent)', color: 'var(--color-text)' }}>
-            {loadError}. Is the OpenJarvis server running (<code>jarvis gui</code>)?
+            {loadError === OUTDATED_SERVER_MESSAGE ? (
+              loadError
+            ) : (
+              <>
+                {loadError}. Is the OpenJarvis server running (<code>jarvis gui</code>)?
+              </>
+            )}
           </div>
         )}
 

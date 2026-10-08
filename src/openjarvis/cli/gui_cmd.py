@@ -164,6 +164,132 @@ def _probe_api(port: int, timeout: float = 1.0) -> str | None:
         return None
 
 
+def _http_status(port: int, path: str, timeout: float = 2.0) -> int | None:
+    """HTTP status of GET *path* on the local API, None when nothing answers."""
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}{path}", timeout=timeout
+        ) as response:
+            return response.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+    except (OSError, ValueError):
+        return None
+
+
+def _api_kind(port: int) -> str | None:
+    """Classify what answers on *port*: current, stale, foreign or None.
+
+    "stale" is an OpenJarvis server started from older code: it still runs
+    after an update (the Windows installer's scheduled task starts one at
+    logon), and the new pages then get 404 "Not Found" from it. The voice
+    routes were added together with the pages that need them, so their
+    absence identifies it.
+    """
+    if _probe_api(port) is None:
+        return None
+    voice = _http_status(port, "/v1/voice/status")
+    if voice is not None and voice != 404:
+        return "current"  # 200, or 401/403 behind an API key
+    info = _http_status(port, "/v1/info")
+    if info in (200, 401, 403):
+        return "stale"
+    return "foreign"
+
+
+_WINDOWS_TASK = "OpenJarvis"
+
+
+def _windows_task_exists() -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        return (
+            subprocess.run(
+                ["schtasks", "/Query", "/TN", _WINDOWS_TASK],
+                capture_output=True,
+                check=False,
+            ).returncode
+            == 0
+        )
+    except OSError:
+        return False
+
+
+def _listening_pids(port: int) -> list[int]:
+    """Processes listening on a local TCP port (best effort, no extra deps)."""
+    pids: set[int] = set()
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if (
+                    len(parts) >= 5
+                    and parts[0].upper() == "TCP"
+                    and parts[1].endswith(f":{port}")
+                    and parts[3].upper() == "LISTENING"
+                    and parts[4].isdigit()
+                ):
+                    pids.add(int(parts[4]))
+        elif shutil.which("lsof"):
+            out = subprocess.run(
+                ["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout
+            pids.update(int(p) for p in out.split() if p.isdigit())
+    except OSError:
+        pass
+    pids.discard(0)
+    pids.discard(os.getpid())
+    return sorted(pids)
+
+
+def _restart_stale_server(console: Console, project_root: Path, port: int) -> bool:
+    """Stop an outdated OpenJarvis server so the updated code can serve.
+
+    Returns True when the Windows scheduled task was restarted (it then
+    serves the new code itself), False when the caller should start a server.
+    """
+    from openjarvis.core.utils import terminate_process
+
+    console.print(
+        f"[yellow]An older OpenJarvis server is running on port {port}[/yellow] "
+        "(from before the update). Restarting it with the new code..."
+    )
+    task = _windows_task_exists()
+    if task:
+        subprocess.run(
+            ["schtasks", "/End", "/TN", _WINDOWS_TASK], capture_output=True, check=False
+        )
+    pid = daemon_cmd._read_pid()
+    if pid is not None:
+        terminate_process(pid, grace_seconds=10.0)
+        daemon_cmd.clear_server_state(pid)
+    for stray in _listening_pids(port):
+        terminate_process(stray, grace_seconds=5.0)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and _probe_api(port) is not None:
+        time.sleep(0.5)
+    if _probe_api(port) is not None:
+        raise click.ClickException(
+            f"Could not stop the old OpenJarvis server on port {port}. "
+            "Restart your computer, then open OpenJarvis again."
+        )
+    if task:
+        subprocess.run(
+            ["schtasks", "/Run", "/TN", _WINDOWS_TASK], capture_output=True, check=False
+        )
+    return task
+
+
 def _log_tail(lines: int = _LOG_TAIL_LINES) -> str:
     """Return the end of the daemon log, for errors the user must act on."""
     try:
@@ -229,12 +355,19 @@ def _start_command(api_port: int) -> list[str]:
 def _wait_for_api(console: Console, port: int, timeout: float) -> str | None:
     """Wait for the API to answer, failing fast when the daemon process dies."""
     deadline = time.monotonic() + timeout
+    # A server started by the Windows scheduled task registers its PID only
+    # once it is up; there, only a PID that appeared and then vanished means
+    # the server died.
+    seen_pid = False
+    task_managed = _windows_task_exists()
     with console.status(f"Waiting for the OpenJarvis API on port {port}..."):
         while time.monotonic() < deadline:
             status = _probe_api(port)
             if status is not None:
                 return status
-            if daemon_cmd._read_pid() is None:
+            if daemon_cmd._read_pid() is not None:
+                seen_pid = True
+            elif seen_pid or not task_managed:
                 raise _startup_failure(
                     "The OpenJarvis API server exited during startup."
                 )
@@ -250,9 +383,17 @@ def _ensure_api(
     Re-running `jarvis gui` used to fail outright: the daemon from the previous
     run was still alive, so `jarvis start` exited non-zero.
     """
-    if _probe_api(api_port) is not None:
+    kind = _api_kind(api_port)
+    if kind == "current":
         console.print(f"Using the OpenJarvis API already running on port {api_port}.")
         return api_port
+    if kind == "foreign":
+        raise click.ClickException(
+            f"Port {api_port} is used by another program (not OpenJarvis). "
+            "Close it, or choose another port with --api-port 8001."
+        )
+    if kind == "stale" and _restart_stale_server(console, project_root, api_port):
+        return api_port  # the scheduled task now serves the new code
 
     pid = daemon_cmd._read_pid()
     if pid is not None:

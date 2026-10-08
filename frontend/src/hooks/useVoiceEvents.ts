@@ -4,7 +4,12 @@ import { toast } from 'sonner';
 import { useVoiceStore } from '../lib/voice';
 import { useTtsStore } from '../lib/tts';
 import { recordActionExchange } from '../lib/actions';
-import { postUiVoiceState, streamVoiceEvents, type VoiceEvent } from '../lib/voice-api';
+import {
+  OutdatedServerError,
+  postUiVoiceState,
+  streamVoiceEvents,
+  type VoiceEvent,
+} from '../lib/voice-api';
 
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 10000;
@@ -49,9 +54,14 @@ export function useVoiceEvents(): void {
 
     const connect = async () => {
       try {
-        await streamVoiceEvents(onEvent, controller.signal);
-      } catch {
-        // Server down or restarting; retry below.
+        await streamVoiceEvents((event) => {
+          useVoiceStore.setState({ serverOutdated: false });
+          onEvent(event);
+        }, controller.signal);
+      } catch (err) {
+        // Server down or restarting; retry below. A 404 means an old server
+        // is still running; say so instead of failing silently.
+        useVoiceStore.setState({ serverOutdated: err instanceof OutdatedServerError });
       }
       if (controller.signal.aborted) return;
       useVoiceStore.getState().setListener(null);

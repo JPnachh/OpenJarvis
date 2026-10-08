@@ -62,7 +62,21 @@ def setup_desktop(no_autostart: bool, no_frontend: bool) -> None:
             except click.ClickException as exc:
                 console.print(f"{warn} {exc.message}")
 
-    # 3. Tray icon (or bare listener) at login.
+    # 3. An OpenJarvis server started before this update keeps serving the old
+    # code (the Windows installer starts one at every logon), and the new
+    # pages then fail with "Not Found". Restart it now.
+    from openjarvis.cli import gui_cmd
+
+    try:
+        if gui_cmd._api_kind(8000) == "stale":
+            root = desk.project_root()
+            if not gui_cmd._restart_stale_server(console, root, 8000):
+                subprocess.run(gui_cmd._start_command(8000), cwd=root, check=False)
+            console.print(f"{ok} Server restarted with the updated code")
+    except click.ClickException as exc:
+        console.print(f"{warn} {exc.message}")
+
+    # 4. Tray icon (or bare listener) at login.
     has_audio = _can_import("sounddevice")
     has_tray = _can_import("pystray") and _can_import("PIL")
     if no_autostart:

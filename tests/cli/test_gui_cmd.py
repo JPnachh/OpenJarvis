@@ -34,7 +34,8 @@ def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
         mock.patch.object(
             gui_cmd.subprocess, "run", return_value=mock.Mock(returncode=0)
         ) as run,
-        mock.patch.object(gui_cmd, "_probe_api", side_effect=[None, "ok"]),
+        mock.patch.object(gui_cmd, "_api_kind", return_value=None),
+        mock.patch.object(gui_cmd, "_probe_api", return_value="ok"),
         mock.patch.object(gui_cmd.daemon_cmd, "_read_pid", return_value=None),
         mock.patch.object(gui_cmd.subprocess, "Popen", return_value=process) as popen,
         mock.patch.object(
@@ -126,6 +127,7 @@ def _launch(
     probe: list[str | None],
     pid: int | None = None,
     state: dict | None = None,
+    kind: str | None = "auto",
 ):
     """Run `jarvis gui` with the frontend and API stubbed out."""
     frontend = tmp_path / "frontend"
@@ -144,7 +146,15 @@ def _launch(
         mock.patch.object(
             gui_cmd.subprocess, "run", return_value=mock.Mock(returncode=0)
         ) as run,
-        mock.patch.object(gui_cmd, "_probe_api", side_effect=probe),
+        mock.patch.object(gui_cmd, "_probe_api", side_effect=probe[1:] or [None]),
+        mock.patch.object(
+            gui_cmd,
+            "_api_kind",
+            return_value=(
+                ("current" if probe[0] else None) if kind == "auto" else kind
+            ),
+        ),
+        mock.patch.object(gui_cmd, "_windows_task_exists", return_value=False),
         mock.patch.object(gui_cmd.daemon_cmd, "_read_pid", return_value=pid),
         mock.patch.object(gui_cmd.daemon_cmd, "_read_state", return_value=state or {}),
         mock.patch.object(gui_cmd.time, "sleep"),
@@ -279,3 +289,61 @@ def test_pause_on_error_keeps_the_window_open() -> None:
     assert result.exit_code == 1
     assert "not available in this installation" in result.output
     pause.assert_called_once()
+
+
+def test_stale_server_is_restarted_with_new_code(tmp_path: Path) -> None:
+    with mock.patch.object(gui_cmd, "_restart_stale_server", return_value=False) as r:
+        result, run, popen = _launch(tmp_path, [], probe=[None, "ok"], kind="stale")
+    assert result.exit_code == 0, result.output
+    r.assert_called_once()
+    run.assert_called_once()  # a fresh server was started
+
+
+def test_foreign_program_on_api_port_is_reported(tmp_path: Path) -> None:
+    result, run, popen = _launch(tmp_path, [], probe=[None], kind="foreign")
+    assert result.exit_code != 0
+    assert "another program" in result.output
+    run.assert_not_called()
+
+
+def test_api_kind_tells_old_servers_apart() -> None:
+    def statuses(mapping):
+        return lambda port, path, timeout=2.0: mapping.get(path)
+
+    with mock.patch.object(gui_cmd, "_probe_api", return_value="ok"):
+        with mock.patch.object(
+            gui_cmd, "_http_status", statuses({"/v1/voice/status": 200})
+        ):
+            assert gui_cmd._api_kind(8000) == "current"
+        with mock.patch.object(
+            gui_cmd, "_http_status", statuses({"/v1/voice/status": 401})
+        ):
+            assert gui_cmd._api_kind(8000) == "current"
+        with mock.patch.object(
+            gui_cmd,
+            "_http_status",
+            statuses({"/v1/voice/status": 404, "/v1/info": 200}),
+        ):
+            assert gui_cmd._api_kind(8000) == "stale"
+        with mock.patch.object(
+            gui_cmd,
+            "_http_status",
+            statuses({"/v1/voice/status": 404, "/v1/info": 404}),
+        ):
+            assert gui_cmd._api_kind(8000) == "foreign"
+    with mock.patch.object(gui_cmd, "_probe_api", return_value=None):
+        assert gui_cmd._api_kind(8000) is None
+
+
+def test_listening_pids_parses_windows_netstat(monkeypatch) -> None:
+    netstat = (
+        "  Proto  Local Address          Foreign Address        State           PID\n"
+        "  TCP    127.0.0.1:8000         0.0.0.0:0              LISTENING       4321\n"
+        "  TCP    127.0.0.1:18000        0.0.0.0:0              LISTENING       99\n"
+        "  TCP    127.0.0.1:8000         127.0.0.1:5000         ESTABLISHED     4321\n"
+    )
+    monkeypatch.setattr(gui_cmd.sys, "platform", "win32")
+    with mock.patch.object(
+        gui_cmd.subprocess, "run", return_value=mock.Mock(stdout=netstat)
+    ):
+        assert gui_cmd._listening_pids(8000) == [4321]
