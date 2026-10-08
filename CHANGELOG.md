@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Open OpenJarvis from the desktop or by clapping**: `jarvis shortcut`
+creates a desktop icon that launches the graphical mode on Windows, macOS and
+Linux. `jarvis clap` listens to the microphone and opens OpenJarvis on a
+double clap, or focuses it in the browser when it is already running. The
+detector rejects single bumps, speech, music beats and three-clap runs.
+`jarvis clap --autostart` starts the listener at login without admin rights,
+and `--test` shows live levels for calibration. Audio is analysed locally and
+never stored.
+
 **Live voice status in the web UI**: the chat now shows when Jarvis is
 listening and when it stops. An animated Jarvis orb reflects the current state
 (listening, transcribing, thinking, speaking), and a status bar shows a live mic

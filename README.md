@@ -67,6 +67,16 @@ server log. It requires Node.js 22+ and is available from a source checkout;
 packaged desktop installers are available from the
 [latest release](https://github.com/open-jarvis/OpenJarvis/releases).
 
+To open it from your desktop, run `jarvis shortcut` once. It puts an
+OpenJarvis icon on the Desktop (Windows `.lnk`, macOS `.command`, Linux
+`.desktop`). To open it by clapping twice, run
+`uv run --extra desktop jarvis clap --autostart`. The clap listener then
+starts at every login and opens OpenJarvis when it hears two claps. If
+OpenJarvis is already running, the claps bring it up in the browser instead.
+Use `jarvis clap --test` to check your microphone and tune `--sensitivity`,
+`jarvis clap --stop` to stop the listener, and `--no-autostart` to remove the
+login entry. Audio is analysed locally and never recorded.
+
 For voice, turn on **Settings → Speech**. While the microphone is open, a
 "Listening" bar with a live level meter and timer sits above the input, and
 the browser tab title shows `● Listening`. By default, listening stops on its
