@@ -105,7 +105,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     from openjarvis.cli.channel_cmd import channel
     from openjarvis.cli.channels_cmd import channels
     from openjarvis.cli.chat_cmd import chat
-    from openjarvis.cli.clap_cmd import clap, shortcut
+    from openjarvis.cli.clap_cmd import listen, shortcut
     from openjarvis.cli.compose_cmd import compose
     from openjarvis.cli.config_cmd import config
     from openjarvis.cli.connect_cmd import connect
@@ -133,6 +133,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     from openjarvis.cli.telemetry_cmd import telemetry
     from openjarvis.cli.tool_cmd import tool
     from openjarvis.cli.vault_cmd import vault
+    from openjarvis.cli.wake_cmd import wake
     from openjarvis.cli.workflow_cmd import workflow
 
     cli.add_command(init, "init")
@@ -167,8 +168,10 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     cli.add_command(compose, "compose")
     cli.add_command(gateway, "gateway")
     cli.add_command(gui, "gui")
-    cli.add_command(clap, "clap")
+    cli.add_command(listen, "listen")
+    cli.add_command(listen, "clap")
     cli.add_command(shortcut, "shortcut")
+    cli.add_command(wake, "wake")
     cli.add_command(tool, "tool")
     cli.add_command(registry, "registry")
     cli.add_command(config, "config")

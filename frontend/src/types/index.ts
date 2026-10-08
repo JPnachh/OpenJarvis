@@ -127,6 +127,9 @@ export interface ChatMessage {
   usage?: TokenUsage;
   telemetry?: MessageTelemetry;
   audio?: { url: string };
+  /** Set on a user message spoken to the background listener, which reads
+   * the reply aloud itself (so the page must not also speak it). */
+  voiceCommandId?: string;
 }
 
 export interface Conversation {

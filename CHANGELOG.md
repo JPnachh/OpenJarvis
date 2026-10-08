@@ -10,6 +10,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**"Hey Jarvis" wake word trained on your voice, and hands-free
+conversation**:
+
+- **Training.** A new **Hey Jarvis** page (also reachable from the sidebar and
+  Settings) records a few takes of the phrase plus a few other sentences, then
+  builds a personal profile under `~/.openjarvis/wakeword/`. The profile works
+  in any language or accent and needs no model download. `jarvis wake
+  train|status|retrain|folder|reset` covers the same steps from the terminal.
+- **Listening.** `jarvis listen` (`jarvis clap` is now an alias) listens for
+  the wake word and for claps. On a trigger it opens OpenJarvis if needed,
+  records the request until you pause, and sends it to the open chat through
+  the new `/v1/voice` endpoints. It then reads the answer aloud and ignores
+  the microphone while Jarvis talks.
+- **Live status.** The page shows the listener's state live.
+- **Desktop shortcut.** On Windows the shortcut is also added to the Start
+  menu. Double-clicking it while OpenJarvis is open brings up the page
+  instead of failing on the busy port, and on failure the window stays open
+  so the error can be read.
+
 **Open OpenJarvis from the desktop or by clapping**: `jarvis shortcut`
 creates a desktop icon that launches the graphical mode on Windows, macOS and
 Linux. `jarvis clap` listens to the microphone and opens OpenJarvis on a

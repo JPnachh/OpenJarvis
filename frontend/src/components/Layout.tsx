@@ -8,6 +8,7 @@ import { checkHealth } from '../lib/api';
 import { useVoiceStore } from '../lib/voice';
 import { useTtsStore } from '../lib/tts';
 import { toast } from 'sonner';
+import { useVoiceEvents } from '../hooks/useVoiceEvents';
 
 const HEALTHY_POLL_MS = 30000;
 const UNREACHABLE_POLL_MS = 3000;
@@ -15,6 +16,7 @@ const UNREACHABLE_POLL_MS = 3000;
 export function Layout() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const [apiReachable, setApiReachable] = useState<boolean | null>(null);
+  useVoiceEvents();
 
   // Poll fast while the backend is unreachable -- `jarvis gui` opens the page
   // while the API may still be starting -- and slowly once it answers.

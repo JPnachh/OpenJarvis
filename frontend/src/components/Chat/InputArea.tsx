@@ -12,6 +12,15 @@ import {
 } from '../../lib/chat-telemetry';
 import { MicButton } from './MicButton';
 import { VoiceStatusBar } from './VoiceStatusBar';
+import { useVoiceStore } from '../../lib/voice';
+import { postVoiceReply } from '../../lib/voice-api';
+import { stripThinkTags } from '../../lib/message-text';
+
+interface SendOptions {
+  /** Called with the final reply text once streaming ends. */
+  onComplete?: (reply: string) => void;
+  voiceCommandId?: string;
+}
 import { useSpeech } from '../../hooks/useSpeech';
 import type {
   ChatMessage,
@@ -108,7 +117,9 @@ export function InputArea() {
   // Dictation lands in the input box, or -- with auto-send on -- goes straight
   // to Jarvis, which makes a hands-free spoken conversation possible. Refs keep
   // the callback current: a recording can finish after several re-renders.
-  const sendMessageRef = useRef<(override?: string) => Promise<void>>(async () => {});
+  const sendMessageRef = useRef<(override?: string, options?: SendOptions) => Promise<void>>(
+    async () => {},
+  );
   const voiceAutoSendRef = useRef(voiceAutoSend);
   voiceAutoSendRef.current = voiceAutoSend;
   const handleTranscript = useCallback((text: string) => {
@@ -188,7 +199,7 @@ export function InputArea() {
     resetStream();
   }, [resetStream]);
 
-  const sendMessage = useCallback(async (override?: string) => {
+  const sendMessage = useCallback(async (override?: string, options: SendOptions = {}) => {
     const content = (typeof override === 'string' ? override : input).trim();
     if (!content || streamState.isStreaming) return;
     if (!selectedModel) {
@@ -208,6 +219,7 @@ export function InputArea() {
       role: 'user',
       content,
       timestamp: Date.now(),
+      ...(options.voiceCommandId ? { voiceCommandId: options.voiceCommandId } : {}),
     };
     addMessage(convId, userMsg);
 
@@ -540,6 +552,7 @@ export function InputArea() {
         timerRef.current = null;
       }
       resetStream();
+      options.onComplete?.(accumulatedContent);
       useAppStore.getState().addLogEntry({
         timestamp: Date.now(), level: 'info', category: 'chat',
         message: `Response: ${accumulatedContent.length} chars`,
@@ -572,6 +585,21 @@ export function InputArea() {
   ]);
 
   sendMessageRef.current = sendMessage;
+
+  // Requests spoken to the background listener ("Hey Jarvis" / claps) go out
+  // like typed messages; the reply goes back so the listener can say it.
+  const pendingCommand = useVoiceStore((s) => s.pendingCommand);
+  useEffect(() => {
+    if (!pendingCommand || streamState.isStreaming || !selectedModel) return;
+    useVoiceStore.getState().setPendingCommand(null);
+    const { id, text } = pendingCommand;
+    void sendMessage(text, {
+      voiceCommandId: id,
+      onComplete: (reply) => {
+        void postVoiceReply(id, stripThinkTags(reply)).catch(() => {});
+      },
+    });
+  }, [pendingCommand, streamState.isStreaming, selectedModel, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

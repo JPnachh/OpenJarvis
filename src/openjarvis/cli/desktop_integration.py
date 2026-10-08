@@ -81,6 +81,12 @@ def desktop_dir() -> Path:
     return Path.home() / "Desktop"
 
 
+def start_menu_dir() -> Path:
+    """Per-user Start menu Programs folder (Windows)."""
+    appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    return appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+
+
 def _ps_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -117,12 +123,21 @@ def create_desktop_shortcut(directory: Path | None = None) -> Path:
     directory = directory or desktop_dir()
     directory.mkdir(parents=True, exist_ok=True)
     root = project_root()
-    command = jarvis_command("gui")
+    command = jarvis_command("gui", "--pause-on-error")
 
     if sys.platform == "win32":
         link = directory / f"{APP_NAME}.lnk"
         try:
             _windows_shortcut(link, command, root, icon_path("ico"))
+            # Also list it in the Start menu, so Windows search finds it.
+            try:
+                start_menu = start_menu_dir()
+                start_menu.mkdir(parents=True, exist_ok=True)
+                _windows_shortcut(
+                    start_menu / f"{APP_NAME}.lnk", command, root, icon_path("ico")
+                )
+            except (OSError, RuntimeError):
+                pass
             return link
         except (OSError, RuntimeError):
             # Fall back to a batch file, which needs no COM.

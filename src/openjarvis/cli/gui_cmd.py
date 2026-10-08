@@ -308,6 +308,12 @@ def _report_api_status(console: Console, status: str | None, port: int) -> None:
 )
 @click.option("--no-server", is_flag=True, help="Do not start the API server.")
 @click.option("--no-browser", is_flag=True, help="Only start the frontend.")
+@click.option(
+    "--pause-on-error",
+    is_flag=True,
+    hidden=True,
+    help="Keep the window open on failure (used by the desktop shortcut).",
+)
 @click.pass_context
 def gui(
     ctx: click.Context,
@@ -315,13 +321,43 @@ def gui(
     api_port: int,
     no_server: bool,
     no_browser: bool,
+    pause_on_error: bool,
 ) -> None:
     """Start the browser-based graphical mode in the default browser.
 
-    Re-running it reuses an OpenJarvis server that is already running. This
+    Re-running it reuses an OpenJarvis server that is already running, and
+    when the graphical mode is already open it just opens the page. This
     command is intended for source checkouts. For an installed desktop
     application, launch OpenJarvis from the operating system menu instead.
     """
+    try:
+        _run_gui(ctx, frontend_port, api_port, no_server, no_browser)
+    except click.ClickException as exc:
+        if not pause_on_error:
+            raise
+        # A window opened from a desktop icon closes as soon as the process
+        # exits, which would hide the reason; keep it up until a keypress.
+        exc.show()
+        click.pause("\nPress any key to close this window...")
+        sys.exit(exc.exit_code)
+
+
+def _frontend_already_running(port: int) -> bool:
+    """Is our own graphical frontend already serving on *port*?"""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1.5) as r:
+            return "OpenJarvis" in r.read(65536).decode("utf-8", "replace")
+    except (OSError, ValueError):
+        return False
+
+
+def _run_gui(
+    ctx: click.Context,
+    frontend_port: int,
+    api_port: int,
+    no_server: bool,
+    no_browser: bool,
+) -> None:
     console = Console(stderr=True)
     frontend = _frontend_dir()
     if frontend is None:
@@ -335,6 +371,12 @@ def gui(
         raise click.ClickException(
             "Node.js/npm is required for graphical mode. Install Node.js 22 or newer."
         )
+    if _frontend_already_running(frontend_port):
+        url = f"http://127.0.0.1:{frontend_port}"
+        console.print(f"[green]OpenJarvis is already open:[/green] {url}")
+        if not no_browser:
+            webbrowser.open(url)
+        return
     _check_frontend_port(frontend_port)
     _ensure_frontend_dependencies(frontend, npm)
 

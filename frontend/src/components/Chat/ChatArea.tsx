@@ -66,6 +66,8 @@ export function ChatArea() {
     if (!voiceOutputEnabled || !voiceAutoplay) return;
 
     if (!last || last.role !== 'assistant' || activeId === null) return;
+    // The background listener speaks replies to requests it heard itself.
+    if (messages[messages.length - 2]?.voiceCommandId) return;
 
     // Model loading may still be in flight when a fast reply completes. Wait
     // for the probe, then confirm that this is still the active finished reply.

@@ -864,6 +864,22 @@ export function SettingsPage() {
                 />
               </button>
             </SettingRow>
+            <SettingRow label="Hey Jarvis" description="Train the wake word with your voice and talk hands-free">
+              <a
+                href="/wake-word"
+                onClick={(e) => {
+                  // Client-side navigation without useNavigate, so this page
+                  // still renders outside a router (tests, previews).
+                  e.preventDefault();
+                  window.history.pushState({}, '', '/wake-word');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+                style={{ background: 'var(--color-accent)', color: 'white' }}
+              >
+                Train my voice
+              </a>
+            </SettingRow>
             <SettingRow label="Text-to-Speech" description="Show a read-aloud button on assistant replies">
               <button
                 onClick={() => { updateSettings({ voiceOutputEnabled: !settings.voiceOutputEnabled }); showSaved(); }}

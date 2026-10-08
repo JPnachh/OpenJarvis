@@ -46,6 +46,7 @@ export function VoiceStatusBar() {
   const heardSpeech = useVoiceStore((s) => s.heardSpeech);
   const lastStop = useVoiceStore((s) => s.lastStop);
   const ttsState = useTtsStore((s) => s.state);
+  const listener = useVoiceStore((s) => s.listener);
   const autoStop = useAppStore((s) => s.settings.voiceAutoStop);
   const [now, setNow] = useState(() => Date.now());
 
@@ -139,6 +140,26 @@ export function VoiceStatusBar() {
     tone = 'var(--color-warning)';
     announce = 'Stopped listening. Transcribing';
     content = <span>Stopped listening · transcribing what you said…</span>;
+  } else if (listener?.state === 'listening') {
+    tone = 'var(--color-error)';
+    announce = 'Listening';
+    content = (
+      <>
+        <span className="font-medium">Listening</span>
+        <span style={{ color: 'var(--color-text-tertiary)' }}>
+          {listener.detail === 'wake word' ? 'Heard “Hey Jarvis”' : listener.detail === 'claps' ? 'Heard your claps' : 'Background listener'}
+          {' · speak your request, then pause'}
+        </span>
+      </>
+    );
+  } else if (listener?.state === 'transcribing') {
+    tone = 'var(--color-warning)';
+    announce = 'Stopped listening. Transcribing';
+    content = <span>Stopped listening · transcribing what you said…</span>;
+  } else if (listener?.state === 'speaking') {
+    tone = 'var(--color-success)';
+    announce = 'Jarvis is speaking';
+    content = <span>Jarvis is speaking (through the background listener)</span>;
   } else if (ttsState === 'loading' || ttsState === 'speaking') {
     tone = 'var(--color-success)';
     announce = ttsState === 'speaking' ? 'Jarvis is speaking' : 'Preparing voice';

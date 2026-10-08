@@ -31,7 +31,7 @@ def test_linux_shortcut_runs_gui_with_this_interpreter(
 
     text = path.read_text()
     assert path.name == "openjarvis.desktop"
-    assert f"Exec={sys.executable} -m openjarvis.cli gui" in text
+    assert f"Exec={sys.executable} -m openjarvis.cli gui --pause-on-error" in text
     assert "Terminal=true" in text
     assert (home / ".local/share/applications/openjarvis.desktop").exists()
 
@@ -134,7 +134,7 @@ def test_clap_stop_without_listener(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(clap_cmd, "_PID_FILE", tmp_path / "clap.pid")
     result = CliRunner().invoke(clap_cmd.clap, ["--stop"])
     assert result.exit_code == 0
-    assert "No clap listener is running" in result.output
+    assert "No listener is running" in result.output
 
 
 def test_clap_refuses_second_listener(tmp_path: Path, monkeypatch) -> None:

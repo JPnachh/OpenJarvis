@@ -1,4 +1,4 @@
-"""``jarvis clap`` and ``jarvis shortcut`` — open OpenJarvis from the desktop."""
+"""``jarvis listen`` (alias ``clap``) and ``jarvis shortcut``: talk to Jarvis."""
 
 from __future__ import annotations
 
@@ -80,21 +80,23 @@ class JarvisOpener:
         return "launched"
 
 
-def _confirm_tone() -> None:
-    """Short rising chirp so the user knows the claps were heard."""
-    try:
-        import numpy as np
-        import sounddevice as sd
+def _api_base(api_port: int | None) -> str:
+    """Where the API listens: explicit port, the daemon's port, or 8000."""
+    if api_port is None:
+        from openjarvis.cli import daemon_cmd
 
-        rate = 22050
-        parts = []
-        for freq in (660, 990):
-            t = np.arange(int(rate * 0.08)) / rate
-            envelope = np.minimum(1, t / 0.01) * np.exp(-t * 25)
-            parts.append(0.2 * np.sin(2 * np.pi * freq * t) * envelope)
-        sd.play(np.concatenate(parts).astype(np.float32), rate)
-    except Exception:  # noqa: BLE001 - a missing beep must never stop listening
-        pass
+        state = daemon_cmd._read_state()
+        api_port = state.get("port") if isinstance(state.get("port"), int) else 8000
+    return f"http://127.0.0.1:{api_port}"
+
+
+def _wake_detector(sensitivity: float):
+    from openjarvis.speech import wakeword
+
+    profile = wakeword.WakeWordProfile.load()
+    if profile is None or not profile.templates:
+        return None
+    return wakeword.WakeWordDetector(profile, sensitivity=sensitivity)
 
 
 @click.command()
@@ -103,14 +105,31 @@ def _confirm_tone() -> None:
     default=2,
     show_default=True,
     type=click.IntRange(1, 5),
-    help="How many claps open Jarvis.",
+    help="How many claps trigger Jarvis.",
 )
 @click.option(
     "--sensitivity",
     default=0.5,
     show_default=True,
     type=click.FloatRange(0.0, 1.0),
-    help="Higher hears softer claps (and more false alarms).",
+    help="Clap sensitivity: higher hears softer claps (and more false alarms).",
+)
+@click.option(
+    "--wake-sensitivity",
+    default=0.5,
+    show_default=True,
+    type=click.FloatRange(0.0, 1.0),
+    help="'Hey Jarvis' sensitivity: higher accepts looser matches.",
+)
+@click.option("--no-claps", is_flag=True, help="Ignore claps.")
+@click.option("--no-wake", is_flag=True, help="Ignore the 'Hey Jarvis' wake word.")
+@click.option(
+    "--open-only",
+    is_flag=True,
+    help="Only open OpenJarvis; do not listen for a request afterwards.",
+)
+@click.option(
+    "--no-speak", is_flag=True, help="Show replies in the page without speaking."
 )
 @click.option(
     "--frontend-port", default=5173, show_default=True, type=click.IntRange(1, 65535)
@@ -120,14 +139,14 @@ def _confirm_tone() -> None:
     "--device", default=None, help="Microphone name or index (default: system mic)."
 )
 @click.option(
-    "--test", is_flag=True, help="Show levels and detected claps; open nothing."
+    "--test", is_flag=True, help="Show live levels and detections; trigger nothing."
 )
 @click.option(
     "--autostart",
     "autostart",
     flag_value="on",
     default=None,
-    help="Start the clap listener automatically at every login.",
+    help="Start the listener automatically at every login.",
 )
 @click.option(
     "--no-autostart",
@@ -135,11 +154,16 @@ def _confirm_tone() -> None:
     flag_value="off",
     help="Remove the login autostart entry.",
 )
-@click.option("--stop", "stop_", is_flag=True, help="Stop a running clap listener.")
-@click.option("--quiet", is_flag=True, help="No confirmation tone.")
-def clap(
+@click.option("--stop", "stop_", is_flag=True, help="Stop a running listener.")
+@click.option("--quiet", is_flag=True, help="No cue tones.")
+def listen(
     claps: int,
     sensitivity: float,
+    wake_sensitivity: float,
+    no_claps: bool,
+    no_wake: bool,
+    open_only: bool,
+    no_speak: bool,
     frontend_port: int,
     api_port: int | None,
     device: str | None,
@@ -148,21 +172,23 @@ def clap(
     stop_: bool,
     quiet: bool,
 ) -> None:
-    """Open OpenJarvis by clapping (two claps by default).
+    """Hands-free Jarvis: say "Hey Jarvis" or clap twice, then talk.
 
-    Listens to the microphone in the background. Audio is analysed locally,
-    block by block, and never recorded or sent anywhere.
+    Opens OpenJarvis if needed, plays a chirp, records your request until you
+    pause, sends it to Jarvis and speaks the answer. Train the wake word with
+    your voice first (Settings -> Hey Jarvis in the app, or `jarvis wake
+    train`). Audio is analysed locally; only your request is transcribed.
     """
     console = Console(stderr=True)
 
     if stop_:
         pid = _running_listener()
         if pid is None:
-            console.print("[yellow]No clap listener is running.[/yellow]")
+            console.print("[yellow]No listener is running.[/yellow]")
             return
         terminate_process(pid)
         _PID_FILE.unlink(missing_ok=True)
-        console.print(f"[green]Clap listener stopped[/green] (PID {pid}).")
+        console.print(f"[green]Listener stopped[/green] (PID {pid}).")
         return
 
     if autostart == "off":
@@ -170,7 +196,7 @@ def clap(
         console.print(
             f"[green]Autostart removed:[/green] {removed}"
             if removed
-            else "[yellow]No clap autostart entry was installed.[/yellow]"
+            else "[yellow]No listener autostart entry was installed.[/yellow]"
         )
         return
 
@@ -178,8 +204,8 @@ def clap(
         import sounddevice  # noqa: F401
     except ImportError as exc:
         raise click.ClickException(
-            "Clap detection needs the sounddevice package. Run it with the "
-            "desktop extra: uv run --extra desktop jarvis clap"
+            "Listening needs the sounddevice package. Run it with the "
+            "desktop extra: uv run --extra desktop jarvis listen"
         ) from exc
     except OSError as exc:
         raise click.ClickException(
@@ -189,23 +215,37 @@ def clap(
         ) from exc
 
     if autostart == "on":
-        clap_args = ["--claps", str(claps), "--sensitivity", str(sensitivity)]
-        clap_args += ["--frontend-port", str(frontend_port)]
+        args = ["--claps", str(claps), "--sensitivity", str(sensitivity)]
+        args += ["--wake-sensitivity", str(wake_sensitivity)]
+        args += ["--frontend-port", str(frontend_port)]
+        for flag, enabled in (
+            ("--no-claps", no_claps),
+            ("--no-wake", no_wake),
+            ("--open-only", open_only),
+            ("--no-speak", no_speak),
+            ("--quiet", quiet),
+        ):
+            if enabled:
+                args.append(flag)
         if api_port is not None:
-            clap_args += ["--api-port", str(api_port)]
+            args += ["--api-port", str(api_port)]
         if device is not None:
-            clap_args += ["--device", device]
-        if quiet:
-            clap_args.append("--quiet")
-        path = desk.install_autostart(clap_args)
+            args += ["--device", device]
+        path = desk.install_autostart(args)
         console.print(
-            f"[green]The clap listener will start at every login.[/green]\n  {path}\n"
-            "Remove it with: jarvis clap --no-autostart"
+            f"[green]The listener will start at every login.[/green]\n  {path}\n"
+            "Remove it with: jarvis listen --no-autostart"
         )
-        if _running_listener() is None:
+        running = _running_listener()
+        if running is not None:
+            console.print(
+                f"A listener is already running (PID {running}); restart it with "
+                "`jarvis listen --stop` and log in again to apply new options."
+            )
+        else:
             console.print("Starting it now in the background...")
             subprocess.Popen(
-                desk.jarvis_command("clap", *clap_args, windowless=True),
+                desk.jarvis_command("listen", *args, windowless=True),
                 cwd=desk.project_root(),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -214,77 +254,91 @@ def clap(
             )
         return
 
-    from openjarvis.speech.clap import (
-        ClapDetector,
-        listen_for_claps,
-        sensitivity_to_peak,
+    from openjarvis.speech import wakeword
+    from openjarvis.speech.clap import ClapDetector, sensitivity_to_peak
+    from openjarvis.speech.listener import (
+        ApiClient,
+        ListenerOptions,
+        Speaker,
+        VoiceListener,
+        chirp,
+        microphone_blocks,
+        resolve_api_key,
     )
+
+    wake = None if no_wake else _wake_detector(wake_sensitivity)
+    if not no_wake and wake is None:
+        console.print(
+            "[yellow]'Hey Jarvis' is not trained yet[/yellow], so only claps work. "
+            "Train it in the app (Settings -> Hey Jarvis -> Train my voice) or "
+            "with `jarvis wake train`."
+        )
+    if no_claps and wake is None:
+        raise click.ClickException(
+            "Nothing to listen for: claps are off and no wake word is trained."
+        )
 
     if not test:
         existing = _running_listener()
         if existing is not None:
             raise click.ClickException(
-                f"A clap listener is already running (PID {existing}). "
-                "Stop it with: jarvis clap --stop"
+                f"A listener is already running (PID {existing}). "
+                "Stop it with: jarvis listen --stop"
             )
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         _PID_FILE.write_text(str(os.getpid()))
 
-    detector = ClapDetector(
-        claps_required=claps, min_peak=sensitivity_to_peak(sensitivity)
-    )
-    opener = JarvisOpener(frontend_port, api_port)
-    mic: int | str | None = int(device) if device and device.isdigit() else device
-    last_draw = 0.0
-    seen = 0
-
-    def on_pattern() -> None:
-        if not quiet:
-            _confirm_tone()
-        if test:
-            console.print(f"\n[green]{claps} claps detected[/green]")
-            return
-        outcome = opener.open()
-        stamp = time.strftime("%H:%M:%S")
-        message = {
-            "opened": "opening OpenJarvis in the browser",
-            "launched": f"starting OpenJarvis (log: {_GUI_LOG})",
-            "starting": "OpenJarvis is still starting",
-        }[outcome]
-        console.print(f"[{stamp}] {claps} claps heard: {message}")
-
-    def on_block(peak: float, rms: float, det: ClapDetector) -> None:
-        nonlocal last_draw, seen
-        if not test:
-            return
-        if det.claps_so_far > seen:
-            console.print(f"\n  clap {det.claps_so_far}/{claps}")
-        seen = det.claps_so_far
-        now = time.monotonic()
-        if now - last_draw >= 0.1:
-            last_draw = now
-            bar = "█" * min(40, int(peak * 40))
-            mark = "|" if peak >= det.min_peak else " "
-            sys.stderr.write(f"\r  level {bar:<40}{mark} peak {peak:4.2f} ")
-            sys.stderr.flush()
-
-    console.print(
-        f"[bold]Listening for {claps} claps[/bold] "
-        f"(sensitivity {sensitivity:.2f}). Ctrl+C to stop."
-        + (
-            "\nTest mode: the bar shows the mic level; | marks the clap threshold."
-            if test
-            else ""
+    clap_detector = (
+        None
+        if no_claps
+        else ClapDetector(
+            claps_required=claps, min_peak=sensitivity_to_peak(sensitivity)
         )
     )
+    mic: int | str | None = int(device) if device and device.isdigit() else device
+    triggers = []
+    if clap_detector is not None:
+        triggers.append(f"{claps} claps")
+    if wake is not None:
+        triggers.append(f"'{wake.profile.phrase}'")
+    console.print(
+        f"[bold]Listening for {' or '.join(triggers)}.[/bold] Ctrl+C to stop."
+    )
+
     try:
-        listen_for_claps(on_pattern, detector, on_block=on_block, device=mic)
+        if test:
+            _run_test(console, mic, clap_detector, wake, claps, quiet, chirp)
+            return
+        listener = VoiceListener(
+            ApiClient(_api_base(api_port), resolve_api_key()),
+            options=ListenerOptions(
+                claps=clap_detector is not None,
+                wake=wake is not None or not no_wake,
+                converse=not open_only,
+                speak_replies=not no_speak,
+                sounds=not quiet,
+            ),
+            clap_detector=clap_detector,
+            wake_detector=wake,
+            open_ui=JarvisOpener(frontend_port, api_port).open,
+            speaker=Speaker(),
+            log=lambda message: console.print(message, highlight=False),
+            profile_loader=None
+            if no_wake
+            else lambda: _wake_detector(wake_sensitivity),
+            profile_path=None if no_wake else wakeword.wakeword_dir() / "profile.json",
+        )
+        try:
+            for block in microphone_blocks(lambda: False, device=mic):
+                listener.process(block)
+        finally:
+            listener.close()
     except RuntimeError as exc:
         raise click.ClickException(
             f"{exc}\nCheck that a microphone is connected and that this app may "
-            "use it (Windows: Settings → Privacy & security → Microphone → "
-            "'Let desktop apps access your microphone'; macOS: System Settings → "
-            "Privacy & Security → Microphone)."
+            "use it (Windows: Settings -> Privacy & security -> Microphone -> "
+            "'Let desktop apps access your microphone'; macOS: System Settings -> "
+            "Privacy & Security -> Microphone)."
         ) from exc
     except KeyboardInterrupt:
         pass
@@ -295,6 +349,51 @@ def clap(
                     _PID_FILE.unlink()
             except (OSError, ValueError):
                 pass
+
+
+def _run_test(console, mic, clap_detector, wake, claps, quiet, chirp) -> None:
+    """Live meter: mic level, clap count and wake-word distance."""
+    import numpy as np
+
+    from openjarvis.speech.listener import Speaker, describe_distance, microphone_blocks
+
+    speaker = Speaker()
+    console.print(
+        "Test mode: nothing opens. 'level' is the mic; 'wake' is how close the "
+        "last sound was to your voice profile (* = match)."
+    )
+    last_draw = 0.0
+    seen = 0
+    for block in microphone_blocks(lambda: False, device=mic):
+        peak = float(np.max(np.abs(block))) if block.size else 0.0
+        rms = float(np.sqrt(np.mean(block * block))) if block.size else 0.0
+        if clap_detector is not None:
+            if clap_detector.process(peak, rms):
+                console.print(f"\n[green]{claps} claps detected[/green]")
+                if not quiet:
+                    speaker.play(chirp("listen"), 22050)
+            elif clap_detector.claps_so_far > seen:
+                console.print(f"\n  clap {clap_detector.claps_so_far}/{claps}")
+            seen = clap_detector.claps_so_far
+        if wake is not None and wake.process(block):
+            console.print(f"\n[green]'{wake.profile.phrase}' detected[/green]")
+            if not quiet:
+                speaker.play(chirp("listen"), 22050)
+        now = time.monotonic()
+        if now - last_draw >= 0.1:
+            last_draw = now
+            bar = "#" * min(30, int(peak * 30))
+            wake_text = (
+                describe_distance(wake.last_distance, wake.threshold)
+                if wake is not None
+                else "off"
+            )
+            sys.stderr.write(f"\r  level {bar:<30} peak {peak:4.2f}  wake {wake_text} ")
+            sys.stderr.flush()
+
+
+# Backwards-compatible name from the clap-only version.
+clap = listen
 
 
 @click.command()

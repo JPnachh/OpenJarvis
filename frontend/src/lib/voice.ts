@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { fetchSpeechHealth, transcribeAudio } from './api';
 import { useTtsStore } from './tts';
+import type { ListenerState } from './voice-api';
 
 /**
  * Voice input is one shared resource, like voice output (see tts.ts): one
@@ -40,6 +41,12 @@ interface VoiceStore {
   error: string | null;
   /** Why and when the last session ended, so the UI can say so. */
   lastStop: { reason: StopReason; at: number } | null;
+  /** State of the background listener (`jarvis listen`), when it reports. */
+  listener: { state: ListenerState; detail: string | null } | null;
+  /** A spoken request from the listener waiting to be sent to the model. */
+  pendingCommand: { id: string; text: string } | null;
+  setListener: (state: ListenerState | null, detail?: string | null) => void;
+  setPendingCommand: (command: { id: string; text: string } | null) => void;
   /** null until the speech backend health probe has answered. */
   available: boolean | null;
   ensureHealth: (force?: boolean) => Promise<void>;
@@ -209,6 +216,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => {
     error: null,
     lastStop: null,
     available: null,
+    listener: null,
+    pendingCommand: null,
+
+    setListener: (state, detail = null) =>
+      set({ listener: state ? { state, detail: detail ?? null } : null }),
+    setPendingCommand: (command) => set({ pendingCommand: command }),
 
     ensureHealth: (force = false) => {
       if (healthProbe && !force) return healthProbe;
@@ -396,5 +409,7 @@ export function __resetVoiceForTests(): void {
     error: null,
     lastStop: null,
     available: null,
+    listener: null,
+    pendingCommand: null,
   });
 }

@@ -26,6 +26,7 @@ def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
     with (
         mock.patch.object(gui_cmd, "_frontend_dir", return_value=frontend),
         mock.patch.object(gui_cmd, "_check_frontend_port") as check_port,
+        mock.patch.object(gui_cmd, "_frontend_already_running", return_value=False),
         mock.patch.object(gui_cmd, "_ensure_frontend_dependencies") as ensure_deps,
         mock.patch.object(
             gui_cmd.shutil, "which", side_effect=lambda name: f"/bin/{name}"
@@ -135,6 +136,7 @@ def _launch(
     with (
         mock.patch.object(gui_cmd, "_frontend_dir", return_value=frontend),
         mock.patch.object(gui_cmd, "_check_frontend_port"),
+        mock.patch.object(gui_cmd, "_frontend_already_running", return_value=False),
         mock.patch.object(gui_cmd, "_ensure_frontend_dependencies"),
         mock.patch.object(
             gui_cmd.shutil, "which", side_effect=lambda name: f"/bin/{name}"
@@ -247,3 +249,33 @@ def test_probe_api_distinguishes_engine_down_from_absent() -> None:
         gui_cmd.urllib.request, "urlopen", side_effect=ConnectionRefusedError()
     ):
         assert gui_cmd._probe_api(8000) is None
+
+
+def test_gui_already_open_just_opens_the_page(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    with (
+        mock.patch.object(gui_cmd, "_frontend_dir", return_value=frontend),
+        mock.patch.object(gui_cmd.shutil, "which", return_value="/bin/npm"),
+        mock.patch.object(gui_cmd, "_frontend_already_running", return_value=True),
+        mock.patch.object(gui_cmd.webbrowser, "open") as open_browser,
+        mock.patch.object(gui_cmd.subprocess, "Popen") as popen,
+    ):
+        result = CliRunner().invoke(gui_cmd.gui, [])
+
+    assert result.exit_code == 0, result.output
+    assert "already open" in result.output
+    open_browser.assert_called_once_with("http://127.0.0.1:5173")
+    popen.assert_not_called()
+
+
+def test_pause_on_error_keeps_the_window_open() -> None:
+    with (
+        mock.patch.object(gui_cmd, "_frontend_dir", return_value=None),
+        mock.patch.object(gui_cmd.click, "pause") as pause,
+    ):
+        result = CliRunner().invoke(gui_cmd.gui, ["--pause-on-error"])
+
+    assert result.exit_code == 1
+    assert "not available in this installation" in result.output
+    pause.assert_called_once()
