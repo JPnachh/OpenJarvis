@@ -1,91 +1,82 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { transcribeAudio, fetchSpeechHealth } from '../lib/api';
+import { useCallback, useEffect, useRef } from 'react';
+import { useVoiceStore, type VoicePhase } from '../lib/voice';
+import { useAppStore } from '../lib/store';
 
-export type SpeechState = 'idle' | 'recording' | 'transcribing';
+export type SpeechState = 'idle' | 'requesting' | 'recording' | 'transcribing';
 
-export function useSpeech() {
-  const [state, setState] = useState<SpeechState>('idle');
-  const [error, setError] = useState<string | null>(null);
-  const [available, setAvailable] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+const PHASE_TO_STATE: Record<VoicePhase, SpeechState> = {
+  idle: 'idle',
+  requesting: 'requesting',
+  listening: 'recording',
+  transcribing: 'transcribing',
+};
 
-  // Check if speech backend is available on mount
+// While the speech backend reports unavailable, look again this often. The
+// page commonly opens before the API has finished starting, and a single
+// probe at mount used to leave the mic disabled until a full reload.
+const HEALTH_RETRY_MS = 15000;
+
+/**
+ * Microphone controls for the chat input, backed by the shared voice store.
+ *
+ * `onTranscript` receives the text of each finished recording, whether the
+ * user stopped it or it stopped on its own after a pause.
+ */
+export function useSpeech(onTranscript: (text: string) => void) {
+  const phase = useVoiceStore((s) => s.phase);
+  const error = useVoiceStore((s) => s.error);
+  const available = useVoiceStore((s) => s.available);
+  const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
+  const autoStop = useAppStore((s) => s.settings.voiceAutoStop);
+  const earcons = useAppStore((s) => s.settings.voiceEarcons);
+
+  const onTranscriptRef = useRef(onTranscript);
+  onTranscriptRef.current = onTranscript;
+
   useEffect(() => {
-    fetchSpeechHealth()
-      .then((health) => setAvailable(health.available))
-      .catch(() => setAvailable(false));
-  }, []);
-
-  const startRecording = useCallback(async (): Promise<void> => {
-    setError(null);
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError('Microphone not supported in this browser');
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const recorder = new MediaRecorder(stream);
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setState('recording');
-    } catch (err) {
-      setError('Microphone access denied');
-      setState('idle');
-    }
-  }, []);
-
-  const stopRecording = useCallback(async (): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const recorder = mediaRecorderRef.current;
-      if (!recorder || recorder.state !== 'recording') {
-        reject(new Error('Not recording'));
-        return;
+    const voice = useVoiceStore.getState();
+    void voice.ensureHealth();
+    if (!speechEnabled) return;
+    const retry = () => {
+      if (useVoiceStore.getState().available !== true) {
+        void useVoiceStore.getState().ensureHealth(true);
       }
+    };
+    const interval = setInterval(retry, HEALTH_RETRY_MS);
+    window.addEventListener('focus', retry);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', retry);
+    };
+  }, [speechEnabled]);
 
-      recorder.onstop = async () => {
-        setState('transcribing');
+  // Never leave the microphone open behind a page the user navigated away from.
+  useEffect(() => () => useVoiceStore.getState().cancel(), []);
 
-        // Stop all audio tracks
-        streamRef.current?.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        chunksRef.current = [];
-
-        try {
-          const result = await transcribeAudio(blob);
-          setState('idle');
-          resolve(result.text);
-        } catch (err) {
-          setState('idle');
-          const msg = err instanceof Error ? err.message : 'Transcription failed';
-          setError(msg);
-          reject(err);
-        }
-      };
-
-      recorder.stop();
+  const startRecording = useCallback(async () => {
+    await useVoiceStore.getState().start({
+      onTranscript: (text) => onTranscriptRef.current(text),
+      autoStop,
+      earcons,
     });
+  }, [autoStop, earcons]);
+
+  const stopRecording = useCallback(() => {
+    useVoiceStore.getState().stop('manual');
   }, []);
 
+  const cancelRecording = useCallback(() => {
+    useVoiceStore.getState().cancel();
+  }, []);
+
+  const state = PHASE_TO_STATE[phase];
   return {
     state,
     error,
-    available,
+    available: available === true,
     startRecording,
     stopRecording,
+    cancelRecording,
     isRecording: state === 'recording',
     isTranscribing: state === 'transcribing',
   };

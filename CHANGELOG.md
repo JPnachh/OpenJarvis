@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Live voice status in the web UI**: the chat now shows when Jarvis is
+listening and when it stops. An animated Jarvis orb reflects the current state
+(listening, transcribing, thinking, speaking), and a status bar shows a live mic
+level meter, the elapsed time, and why listening ended. By default, listening
+stops after a pause, and a short tone plays when the mic opens and closes. Esc
+cancels. Optional auto-send gives a hands-free conversation. Each behavior has
+its own toggle under Settings → Speech.
+
 **Apple Foundation Models (AFM 3)** — a new in-process `afm` engine drives
 Apple's `apple-fm-sdk` directly, with no HTTP hop and no second process whose
 CPU draw would land inside the same energy measurement window. Install with
@@ -66,6 +74,17 @@ stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
 (default `16384`).
 
 ### Fixed
+
+**`jarvis gui` launch failures**: a second `jarvis gui` no longer aborts with
+"Could not start the OpenJarvis API server" while the first server is still
+running; it reuses that server, including one started on another port. The
+launcher now waits for `/health`. If the server dies during startup, it prints
+the end of the server log and a hint (for example, to start Ollama). If the
+inference engine is down, it says so. When the local npm is older than the
+version the frontend requires, the frontend install uses the required npm
+instead of failing with EBADENGINE. In the web UI, the "cannot reach backend"
+banner now retries every few seconds instead of every 30, and speech
+availability is checked again once the server is up.
 
 **Apple Silicon energy was never measured, only modelled.**
 `telemetry/energy_apple.py` imported `AppleSiliconMonitor` from

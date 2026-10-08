@@ -19,10 +19,12 @@ export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) 
         : reason === 'streaming'
           ? 'Wait for response'
           : state === 'recording'
-            ? 'Stop recording'
-            : state === 'transcribing'
-              ? 'Transcribing...'
-              : 'Voice input';
+            ? 'Listening — click to finish'
+            : state === 'requesting'
+              ? 'Waiting for microphone permission'
+              : state === 'transcribing'
+                ? 'Transcribing...'
+                : 'Talk to Jarvis';
 
   const isInactive = disabled || state === 'transcribing';
 
@@ -33,21 +35,26 @@ export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) 
       onMouseLeave={() => setShowTooltip(false)}
     >
       <button
+        type="button"
         onClick={onClick}
         disabled={isInactive}
+        aria-label={tooltipText}
+        aria-pressed={state === 'recording'}
         className="p-2 rounded-xl transition-all shrink-0"
         style={{
-          background: state === 'recording'
+          background: state === 'recording' || state === 'requesting'
             ? 'var(--color-error)'
             : 'transparent',
-          color: state === 'recording'
+          color: state === 'recording' || state === 'requesting'
             ? 'white'
             : isInactive
               ? 'var(--color-text-tertiary)'
               : 'var(--color-text-secondary)',
           cursor: isInactive ? 'default' : 'pointer',
           opacity: isInactive ? 0.35 : 1,
-          animation: state === 'recording' ? 'pulse 1.5s ease-in-out infinite' : 'none',
+          animation: state === 'recording' || state === 'requesting'
+            ? 'pulse 1.5s ease-in-out infinite'
+            : 'none',
         }}
       >
         {state === 'transcribing' ? (
@@ -63,7 +70,7 @@ export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) 
           </svg>
         )}
       </button>
-      {showTooltip && isInactive && (
+      {showTooltip && (
         <div
           className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap pointer-events-none"
           style={{

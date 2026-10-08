@@ -61,9 +61,18 @@ jarvis init --preset <name> --force  # replace config with a starter preset
 ```
 
 `jarvis gui` starts the local API server and frontend, then opens the graphical
-chat interface in your default browser. It requires Node.js 22+ and is
-available from a source checkout; packaged desktop installers are available
-from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases).
+chat interface in your default browser. Running it again reuses a server that
+is already up, and if the server cannot start it prints the reason from the
+server log. It requires Node.js 22+ and is available from a source checkout;
+packaged desktop installers are available from the
+[latest release](https://github.com/open-jarvis/OpenJarvis/releases).
+
+For voice, turn on **Settings → Speech**. While the microphone is open, a
+"Listening" bar with a live level meter and timer sits above the input, and
+the browser tab title shows `● Listening`. By default, listening stops on its
+own when you pause, and a short tone plays when it starts and stops. Turn on
+"Send dictation automatically" and "Speak replies automatically" for a
+hands-free conversation.
 
 > Prefix `jarvis ...` with `uv run`, or `source .venv/bin/activate` first.
 

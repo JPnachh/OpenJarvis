@@ -801,6 +801,69 @@ export function SettingsPage() {
                 />
               </button>
             </SettingRow>
+            <SettingRow label="Stop when I pause" description="Finish listening automatically after a short silence">
+              <button
+                onClick={() => { updateSettings({ voiceAutoStop: !settings.voiceAutoStop }); showSaved(); }}
+                disabled={!settings.speechEnabled}
+                aria-pressed={settings.voiceAutoStop}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.voiceAutoStop && settings.speechEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                  opacity: settings.speechEnabled ? 1 : 0.4,
+                  cursor: settings.speechEnabled ? 'pointer' : 'default',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.voiceAutoStop && settings.speechEnabled ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="Listening sounds" description="Play a short tone when the microphone opens and closes">
+              <button
+                onClick={() => { updateSettings({ voiceEarcons: !settings.voiceEarcons }); showSaved(); }}
+                disabled={!settings.speechEnabled}
+                aria-pressed={settings.voiceEarcons}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.voiceEarcons && settings.speechEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                  opacity: settings.speechEnabled ? 1 : 0.4,
+                  cursor: settings.speechEnabled ? 'pointer' : 'default',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.voiceEarcons && settings.speechEnabled ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="Send dictation automatically" description="Send what you said as soon as it is transcribed — with spoken replies on, this is a hands-free conversation">
+              <button
+                onClick={() => { updateSettings({ voiceAutoSend: !settings.voiceAutoSend }); showSaved(); }}
+                disabled={!settings.speechEnabled}
+                aria-pressed={settings.voiceAutoSend}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.voiceAutoSend && settings.speechEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                  opacity: settings.speechEnabled ? 1 : 0.4,
+                  cursor: settings.speechEnabled ? 'pointer' : 'default',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.voiceAutoSend && settings.speechEnabled ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
             <SettingRow label="Text-to-Speech" description="Show a read-aloud button on assistant replies">
               <button
                 onClick={() => { updateSettings({ voiceOutputEnabled: !settings.voiceOutputEnabled }); showSaved(); }}
